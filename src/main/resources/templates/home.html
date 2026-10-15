@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!--/* The content comes from the "home" part of the site configuration (info/site.yaml), see SiteLoader. */-->
+<html th:replace="~{layout :: layout(null, 'home', ~{::view})}" xmlns:th="http://www.thymeleaf.org">
+<body>
+<section th:fragment="view" class="container home" th:with="home=${site.home}">
+  <div class="home-card" th:if="${home.hasCard()}">
+    <div class="avatar" th:if="${home.avatar != null}"><img th:src="${home.avatar}" alt="avatar"></div>
+    <h2 th:if="${home.headline != null}" th:text="${home.headline}">Data Engineer in PropTech</h2>
+    <ul class="home-links" th:unless="${home.links.isEmpty()}">
+      <li th:each="link : ${home.links}"><a th:href="${link.url}" th:target="${site.externalLinksInNewTab} ? '_blank'" th:rel="${site.externalLinksInNewTab} ? 'noopener'">
+        <img th:if="${link.icon != null}" th:src="${link.icon}" alt="" class="icon">
+        <i th:if="${link.icon == null and link.iconClass != null}" th:class="${link.iconClass} + ' icon'" aria-hidden="true"></i>
+        <span th:text="${link.name}">ORCID</span></a></li>
+    </ul>
+  </div>
+  <div class="home-text">
+    <h1 th:unless="${site.author.isEmpty()}" th:text="${site.author}">Stefan Hoffmann</h1>
+    <th:block th:utext="${home.html}"></th:block>
+  </div>
+</section>
+</body>
+</html>

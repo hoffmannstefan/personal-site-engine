@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html th:replace="~{layout :: layout('Page not found', '', ~{::view})}" xmlns:th="http://www.thymeleaf.org">
+<body>
+<section th:fragment="view" class="container centered">
+  <h1>404</h1>
+  <h2>Page not found</h2>
+  <p>The page you are looking for does not exist. <a href="/">Back to the homepage</a>.</p>
+</section>
+</body>
+</html>

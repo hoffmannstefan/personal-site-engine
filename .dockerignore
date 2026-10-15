@@ -1,0 +1,7 @@
+target/
+data/
+posts/
+.idea/
+.vscode/
+*.iml
+info/

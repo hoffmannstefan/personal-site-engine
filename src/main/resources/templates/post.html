@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html th:replace="~{layout :: layout(${pageTitle}, ${nav}, ~{::view})}" xmlns:th="http://www.thymeleaf.org">
+<body>
+<th:block th:fragment="view">
+<section class="container post">
+  <article>
+    <header>
+      <div class="post-title">
+        <h1 class="title"><a class="title-link" th:href="@{/posts/{s}/(s=${post.slug})}" th:text="${post.title}">Title</a></h1>
+      </div>
+      <div class="post-meta">
+        <div class="date">
+          <span class="posted-on">
+            <i class="fa-solid fa-calendar" aria-hidden="true"></i>
+            <time th:datetime="${post.date}" th:text="${#temporals.format(post.date, 'MMMM d, yyyy')}">July 13, 2023</time>
+          </span>
+          <span class="reading-time" th:if="${post.readingTime != null}">
+            <i class="fa-solid fa-clock" aria-hidden="true"></i>
+            <th:block th:text="${post.readingTime}">3-minute read</th:block>
+          </span>
+        </div>
+        <div class="authors" th:if="${!post.authors.empty}">
+          <i class="fa-solid fa-user" aria-hidden="true"></i>
+          <span th:text="${#strings.listJoin(post.authors, ' • ')}">Author</span>
+        </div>
+        <div class="categories" th:if="${!post.categories.empty}">
+          <i class="fa-solid fa-folder" aria-hidden="true"></i>
+          <span th:text="${#strings.listJoin(post.categories, ' • ')}">Category</span>
+        </div>
+        <div class="tags" th:if="${!post.tags.empty}">
+          <i class="fa-solid fa-tag" aria-hidden="true"></i>
+          <th:block th:each="t, st : ${post.tags}"><span class="separator" th:if="${!st.first}">•</span> <span class="tag" th:text="${t}">Tag</span></th:block>
+        </div>
+      </div>
+    </header>
+
+    <div class="post-content" th:utext="${post.body}"></div>
+
+    <footer>
+      <section id="comments" class="comments" th:attr="data-slug=${post.slug}">
+        <h2 class="comments-title">Comments <span id="comments-count" class="comments-count"></span></h2>
+
+        <ol id="comment-list" class="comment-list" aria-live="polite"></ol>
+        <p id="comments-empty" class="comments-empty" hidden>No comments yet. Be the first to share your thoughts!</p>
+        <noscript><p class="comments-empty">Please enable JavaScript to read and write comments.</p></noscript>
+
+        <form id="comment-form" class="comment-form" novalidate>
+          <h3 id="comment-form-title">Leave a comment</h3>
+          <p id="reply-banner" class="reply-banner" hidden>
+            Replying to <strong id="reply-to"></strong>
+            <button type="button" id="reply-cancel" class="link-button">Cancel</button>
+          </p>
+          <div class="field">
+            <label for="comment-author">Name</label>
+            <input id="comment-author" name="author" type="text" maxlength="50" autocomplete="nickname" required>
+          </div>
+          <div class="field">
+            <label for="comment-body">Comment</label>
+            <textarea id="comment-body" name="body" rows="5" maxlength="2000" required></textarea>
+            <small class="char-count"><span id="char-count">0</span> / 2000</small>
+          </div>
+          <!-- honeypot: hidden from people, irresistible to bots -->
+          <div class="hp-field" aria-hidden="true">
+            <label for="comment-website">Website</label>
+            <input id="comment-website" name="website" type="text" tabindex="-1" autocomplete="off">
+          </div>
+          <p id="comment-status" class="comment-status" role="status"></p>
+          <button type="submit" id="comment-submit" class="button">Post comment</button>
+        </form>
+      </section>
+    </footer>
+  </article>
+</section>
+<th:block th:if="${post.math}">
+  <link rel="stylesheet" href="/css/math.css" media="screen">
+  <script src="/js/mathjax-config.js"></script>
+  <script defer src="/webjars/mathjax/3.2.2/es5/tex-svg.js"></script>
+</th:block>
+<script src="/js/comments.js"></script>
+</th:block>
+</body>
+</html>

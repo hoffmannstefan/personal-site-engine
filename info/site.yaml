@@ -1,0 +1,83 @@
+# Settings of the whole site: name, texts and start page.
+# Read at startup, so restart after a change (docker compose restart). Every key is optional.
+
+# Shown in the menu bar and the browser tab.
+title: Stefan Hoffmann
+# Shown as the heading of the start page; the default author of posts.
+author: Stefan Hoffmann
+# For search engines (<meta name="description"> and <meta name="keywords">).
+description: Stefan Hoffmann's personal website
+keywords: data engineering, PropTech, theoretical computer science, blog, publications
+# Number of posts per page on the blog.
+posts-per-page: 6
+# Open links to other sites in a new tab (profile links, publications, footer, links in texts and posts).
+external-links-in-new-tab: false
+
+# The Publications page (list from info/publications.bib). An arXiv version (CoRR) of a published paper with the
+# same title never gets an entry of its own.
+publications:
+  # Which arXiv versions (CoRR entries) get an entry of their own:
+  #   always      - all of them, also those of papers listed as published
+  #   unpublished - only those without a published version in the list (papers that are only on arXiv)
+  #   never       - none
+  arxiv-papers: unpublished
+  # Add a link to the arXiv preprint to published papers that are also on arXiv.
+  arxiv-links: true
+  # How the list starts out: year, type (journal articles, conference papers, preprints) or none. Visitors can switch
+  # on the page. The newest papers always come first.
+  group-by: year
+  # How the authors are shown: all (all names) or coauthors (without "author" from above, the others as
+  # "(with Jane Roe, John Doe)"; nothing for a paper without coauthors).
+  authors: coauthors
+  # A journal article that extends a conference paper names it in the BibTeX field "related"; show the note
+  # "extended version of DLT 2023, ..." with a link to that entry, and "extended in ..." at that entry (true or false).
+  extended-version-links: true
+  # How many characters of the conference paper's title follow in "extended version of DLT 2023, Completely Dis…";
+  # a shorter title is shown in full, 0 shows none. The full title is always shown as a tooltip.
+  extended-version-title-length: 20
+
+home:
+  headline: Data Engineer in PropTech
+  # Images are paths inside info/images/ (served under /images/); values starting with / or http are used as they are.
+  avatar: me.jpg
+  # Each link has an image "icon" or a Font Awesome "icon-class" (e.g. fa-brands fa-github), or neither.
+  links:
+    - name: LinkedIn
+      url: https://www.linkedin.com/in/stefan-hoffmann-a9585436a/
+      icon-class: fa-brands fa-linkedin
+    - name: GitHub
+      url: https://github.com/hoffmannstefan
+      icon-class: fa-brands fa-github
+    - name: YouTube
+      url: https://www.youtube.com/@pspace9458
+      icon-class: fa-brands fa-youtube
+    - name: ORCID
+      url: https://orcid.org/0000-0002-7866-075X
+      icon: icons/orcid.png
+    - name: arXiv
+      url: https://arxiv.org/a/hoffmann_s_1
+      icon: icons/arxiv.png
+    - name: ResearchGate
+      url: https://www.researchgate.net/profile/Stefan-Hoffmann-10
+      icon: icons/researchgate.svg
+    - name: Google Scholar
+      url: https://scholar.google.com/citations?user=d0Ht2_MAAAAJ&hl=de
+      icon: icons/google-scholar.svg
+    - name: DBLP
+      url: https://dblp.org/pid/73/962-1.html
+      icon: icons/dblp.png
+
+  # Markdown; an empty line starts a new paragraph.
+  text: |
+    I am a data engineer in PropTech at [on-geo GmbH](https://www.on-geo.de/), part of the Accumin Group, where I
+    work with real estate data. I focus on data modelling, verification and data quality, working with Airflow,
+    Python, SQL (PostgreSQL, MS SQL), dbt and Great Expectations.
+
+    Previously, I worked as a data scientist and full-stack developer at a psychiatric hospital, using Java, MySQL,
+    MS Access and Apache Tomcat. I also spent several years as a researcher in theoretical computer science, working
+    on automata synchronisation and the theoretical foundations of software verification. You can find some of my
+    scholarly work and original research here as well.
+
+    WARNING: This site is still under construction. I'm just testing my new vServer. Images, descriptions, blog
+    posts, and much more content will be added soon. Meanwhile, my old homepage is reachable
+    [here](https://hoffmannstefan.github.io).

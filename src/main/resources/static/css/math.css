@@ -1,0 +1,6 @@
+/* Formulas inherit the text colour, so they follow the light/dark switch. Wide ones scroll instead of overflowing. */
+mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; max-width: 100%; margin: 1.2em 0 !important; }
+
+/* Equation references (\eqref) are links; MathJax paints them pure blue, which vanishes on the dark theme.
+   --accent comes from site.css, which every page loads. */
+body mjx-container[jax="SVG"] > svg a { fill: var(--accent); stroke: var(--accent); }

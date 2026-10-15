@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!--/* The entries come from the BibTeX file site.publications-file (info/publications.bib), see PublicationService.
+       They are grouped as set by publications.group-by in info/site.yaml, or by ?group=year|type|none. */-->
+<html th:replace="~{layout :: layout('Publications', 'publications', ~{::view})}" xmlns:th="http://www.thymeleaf.org">
+<body>
+<section th:fragment="view" class="container page">
+  <article>
+    <header>
+      <h1 class="title"><a class="title-link" href="/publications/">Publications</a></h1>
+    </header>
+    <p class="publication-grouping" th:unless="${groups.empty}">Group by:
+      <th:block th:each="g, it : ${groupings}">
+        <strong th:if="${g == groupBy}" aria-current="true" th:text="${g.key()}">year</strong>
+        <a th:unless="${g == groupBy}" th:href="@{/publications/(group=${g.key()})}" th:text="${g.key()}">type</a>
+        <th:block th:unless="${it.last}">&middot;</th:block>
+      </th:block>
+    </p>
+    <th:block th:each="group : ${groups}">
+      <h2 th:if="${group.heading != null}" th:id="${group.id}" th:text="${group.heading}">2024</h2>
+      <ul class="publications">
+        <li th:each="p : ${group.entries}" th:id="${p.id}">
+          <a th:href="${p.link}" th:remove="${p.link == null} ? tag" class="external-link" th:target="${site.externalLinksInNewTab} ? '_blank'" th:rel="${site.externalLinksInNewTab} ? 'noopener'"><strong th:text="${p.title}">Title</strong></a><br>
+          <th:block th:if="${p.authors != null}"><span th:text="${p.authors}">Authors</span><br></th:block>
+          <em th:text="${p.venue}">Journal</em><th:block th:if="${p.year != null}" th:text="', ' + ${p.year}">, 2025</th:block><th:block th:if="${p.preprint != null}">
+            &middot; <a th:href="${p.preprint}" class="external-link" th:target="${site.externalLinksInNewTab} ? '_blank'" th:rel="${site.externalLinksInNewTab} ? 'noopener'">arXiv</a></th:block><th:block th:unless="${p.extensionOf.empty}">
+            &middot; extended version of <th:block th:each="r, it : ${p.extensionOf}"><a th:href="'#' + ${r.id}" th:text="${r.text}" th:title="${r.title}">DLT 2023, Completely Distinguisha…</a><th:block th:unless="${it.last}" th:text="${it.index == it.size - 2} ? ' and ' : ', '">, </th:block></th:block></th:block><th:block th:unless="${p.extendedIn.empty}">
+            &middot; extended in <th:block th:each="r, it : ${p.extendedIn}"><a th:href="'#' + ${r.id}" th:text="${r.text}" th:title="${r.title}">Theory Comput. Syst. 2026</a><th:block th:unless="${it.last}" th:text="${it.index == it.size - 2} ? ' and ' : ', '">, </th:block></th:block></th:block>
+        </li>
+      </ul>
+    </th:block>
+    <p th:if="${groups.empty}">Coming soon.</p>
+  </article>
+</section>
+</body>
+</html>
