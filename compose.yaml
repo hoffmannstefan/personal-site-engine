@@ -1,7 +1,7 @@
 services:
   homepage:
     build: .
-    image: homepage
+    image: ghcr.io/hoffmannstefan/personal-site-engine:latest
     ports:
       - "8080:8080"
     # Same user as the owner of ./data on the host, so the database files stay writable for both.

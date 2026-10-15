@@ -1,5 +1,7 @@
 # Personal Site Engine
 
+[![CI](https://github.com/hoffmannstefan/personal-site-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/hoffmannstefan/personal-site-engine/actions/workflows/ci.yml)
+
 A small, self-hosted engine for a personal academic or developer website, built with **Spring Boot 3.5 / Java 21**
 and server-side **Thymeleaf** templates. All content lives in plain files next to the application: a YAML file for
 the site, Markdown files for the blog and a BibTeX file for the publication list. Visitors can comment on every post.
@@ -258,6 +260,27 @@ Formulas are typeset by [MathJax](https://www.mathjax.org/) 3 (SVG output, so th
 which comes from the `org.webjars.npm:mathjax` dependency and is served by the app itself: no CDN, works offline.
 A post that contains a formula loads MathJax automatically. The server writes every formula as `\( \)` / `\[ \]`,
 so `$` is not a delimiter in the browser (see `static/js/mathjax-config.js`).
+
+## Continuous integration and deployment
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request:
+
+1. **Build and test**: `./mvnw verify` with Java 21.
+2. **Docker image**: built after green tests; pushes to `main` publish it as
+   `ghcr.io/hoffmannstefan/personal-site-engine` (tags `latest` and the commit hash).
+3. **Deploy** (from `main` only, see below): copies `compose.yaml` and `info/` to the server via rsync (`info/` is
+   mirrored, so files deleted in the repository disappear on the server too), pulls the new image and recreates the
+   container. `data/` and `.env` on the server are not touched.
+
+Deployment is off by default. Pushes to `main` deploy only while the repository variable `DEPLOY_ENABLED` is `true`
+(Settings → Secrets and variables → Actions → Variables, or `gh variable set DEPLOY_ENABLED --body true`). A manual
+run (Actions → CI → Run workflow) with "Deploy" ticked deploys regardless of the variable. Changes to `README.md` and
+`TODO.md` alone start no run at all.
+
+The deploy job reads the server access from repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`,
+`DEPLOY_SSH_KEY` (a private key used only for deployment) and `DEPLOY_KNOWN_HOSTS` (output of `ssh-keyscan <host>`).
+The server needs Docker with Compose and rsync; if the package on ghcr.io is private, log in there once with
+`docker login ghcr.io`.
 
 ## Technical configuration
 

@@ -1,7 +1,7 @@
 # TODO
 
 ## CI/CD
-- [ ] Implement a CI/CD pipeline that automatically validates, builds, and deploys the website when blog posts, publications, or personal information are added or updated.
+- [x] Implement a CI/CD pipeline that automatically validates, builds, and deploys the website when blog posts, publications, or personal information are added or updated.
 
 ## REST API & Architecture
 - [ ] Implement a REST API to provide personal information, blog posts, and publications.
