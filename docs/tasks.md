@@ -7,7 +7,10 @@ expects to exist in the code, so it can be read on its own.
 Conventions for every task: Spring Boot 3.5, Java 21, Maven wrapper; `./mvnw verify` stays green; new behaviour comes
 with tests.
 
-Suggested order: 35, 39, 37, 36, 34, 38.
+Suggested order: 39, 37, 36, 34, 38.
+
+The tasks are worked off by the team described in [process.md](process.md): the product manager adds the parts
+Acceptance criteria, Out of scope and Constraints to a task before anyone writes code.
 
 ## 34. Clean up the rate limiter
 Goal: The rate limiter does not keep addresses longer than needed.
@@ -16,18 +19,6 @@ one-time commenters stay until the backend restarts. Remove expired windows peri
 retained addresses stay bounded (spec §13).
 Acceptance criterion: A unit test with a controllable clock shows that an address that commented once is gone from
 the limiter after its window has passed, without that address commenting again.
-
-## 35. Set up the vServer and switch production over
-Goal: Production, development and the dashboards run on the vServer behind its Caddy.
-Description: Everything the repository needs is in place: memory limits, health checks, the extra Compose files, the
-Caddy sites and the deploy of `main` to production and `develop` to development. What remains are the one-time steps
-on the server and in GitHub in `deploy/README.md`: swap, the network `edge`, Caddy, folders and `.env` files,
-GitHub environments and secrets, then the stack, the switch of production and the development site. Afterwards
-delete the old `personal-site-engine` package on GHCR.
-Acceptance criterion: https://www.stefan-hoffmann.de is served by `site-production-frontend` with the comments from
-before the switch; https://dev.stefan-hoffmann.de asks for the password and shows the development site;
-https://grafana.stefan-hoffmann.de asks for a login and shows both environments; `free -h` on the server shows
-memory left with the development site running.
 
 ## 36. Check comments, formulas and persistence in a browser
 Goal: The parts that automated tests cannot see are confirmed by hand.

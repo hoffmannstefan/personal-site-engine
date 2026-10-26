@@ -503,6 +503,10 @@ which connects the application to it; see [observability/README.md](observabilit
 (`site-edge.yaml`, `observability-edge.yaml`), the sites for Caddy's Caddyfile, templates of the three `.env` files,
 and the setup guide [deploy/README.md](deploy/README.md).
 
+**For coding agents**: `AGENTS.md` (commands and rules; `CLAUDE.md` only points to it), `.claude/agents/` (the product
+manager, software engineer and QA engineer) and `docs/` (`spec.md`, the backlog `tasks.md` with `tasks-done.md`, and
+`process.md`, which describes how the team works on a task).
+
 ## Credits
 
 The base stylesheet, the light/dark switch script and the Font Awesome subset come from the

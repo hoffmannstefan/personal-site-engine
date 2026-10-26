@@ -7,11 +7,11 @@ Each task keeps its number from the backlog and has three extra lines:
 
 - **Status:** "Done", or "Done, verification open" (see Verified).
 - **Done in:** the commit(s) with the work. `44fc6ec` is the first single-module version, `f8eed9f` added CI/CD,
-  `85c5324` split it into backend and frontend (branch `split-backend-frontend`, not yet merged into `main`).
+  `85c5324` split it into backend and frontend; `main` and `develop` contain all of them.
 - **Verified:** how the acceptance criterion was checked. For "Done, verification open" the code is written, but part
   of the criterion has not been checked yet; the line names the task in `tasks.md` that covers it.
 
-Status on October 26, 2026: 23 tasks done, 10 done with verification open.
+Status on October 26, 2026: 24 tasks done, 10 done with verification open.
 
 ## 1. Empty project with a passing test
 Goal: A buildable Maven project with a backend and a frontend module, each with one passing test.
@@ -390,3 +390,25 @@ Verified: the health check is a port check (`bash`, no telemetry); the frontend 
 while the backend restarts the frontend retries its calls (`RetryTest`, `RetryWhileBackendStartsTest`). Checked on a
 copy of the server setup behind Caddy: during a deploy that recreated backend and frontend, all 26 requests were
 answered with 200 and a comment posted meanwhile arrived.
+
+## 35. Set up the vServer and switch production over
+Goal: Production, development and the dashboards run on the vServer behind its Caddy.
+Description: Everything the repository needs was in place: memory limits, health checks, the extra Compose files, the
+Caddy sites and the deploy of `main` to production and `develop` to development. What remained were the one-time
+steps on the server and in GitHub in `deploy/README.md`: swap, the network `edge`, Caddy, folders and `.env` files,
+GitHub environments and secrets, then the stack, the switch of production and the development site. Afterwards
+delete the old `personal-site-engine` package on GHCR.
+Acceptance criterion: https://www.stefan-hoffmann.de is served by `site-production-frontend` with the comments from
+before the switch; https://dev.stefan-hoffmann.de shows the development site; https://grafana.stefan-hoffmann.de
+shows both environments; `free -h` on the server shows memory left with the development site running.
+Status: Done
+Done in: `67b2ab4` (the Docker build runs the tests without BuildKit's `OTEL_*` variables), `729751f` (Grafana and the
+development site open, with an optional password) and `514d080` (a failed removal of old images no longer fails a
+deploy); the rest was set up by hand on the server following `deploy/README.md`.
+Verified: On October 26, 2026 the deploys of `main` and `develop` ran from GitHub Actions and left backend and
+frontend healthy in both environments; production kept its comment database (`/opt/hp/data`). From outside, www, dev,
+grafana and the Nextcloud answered 200. With everything running, `free -h` showed about 440 MB available and about
+330 MB of the 2 GB swap in use; the task of measuring the Nextcloud is 39. Not checked: whether the old package
+`personal-site-engine` on GHCR has been deleted; that is up to the owner. The sites were made open instead of
+password protected: the dashboards can be viewed without a login, and a password for either is optional
+(`deploy/README.md`).

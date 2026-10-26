@@ -2,14 +2,14 @@
 
 ## Product and Technical Specification — v1.0 (backend/frontend split)
 
-**Status:** Draft
+**Status:** Implemented and running; the open tasks are in [tasks.md](tasks.md)
 
 **Date:** October 26, 2026
 
 **Audience:** Site owner, contributors, reviewers and coding agents working on this repository
 
-**Scope:** The system as built on branch `split-backend-frontend` (commits `85c5324`, `b743627`), not yet merged into
-`main`.
+**Scope:** The system as built and deployed from `main` (production) and `develop` (development), with the backend
+and frontend split (`85c5324`).
 
 ## 1. Product summary
 
@@ -339,8 +339,8 @@ share no code.
 | Address | Compose project | Branch |
 | --- | --- | --- |
 | `www.stefan-hoffmann.de` | the site, production | `main` |
-| `dev.stefan-hoffmann.de` (password, `noindex`) | the site, development | `develop` |
-| `grafana.stefan-hoffmann.de` (Grafana login) | `observability` | `main`, changes to `observability/` |
+| `dev.stefan-hoffmann.de` (open, optional password, `noindex`) | the site, development | `develop` |
+| `grafana.stefan-hoffmann.de` (dashboards open, Grafana login to edit) | `observability` | `main`, changes to `observability/` |
 
 - Caddy reaches the frontends and Grafana over the Docker network `edge`, under names unique per environment
   (`site-production-frontend`, `site-development-frontend`, `observability-grafana`, from `deploy/site-edge.yaml`
@@ -435,8 +435,9 @@ The backend serves these endpoints; the frontend forwards them unchanged, so the
   and `deploy/site-edge.yaml` sets this on the server.
 - On the server, the sites and Grafana have no port reachable from outside; only Caddy does (80, 443). The sites'
   ports are bound to `127.0.0.1`.
-- The development site is behind a password (Caddy `basic_auth`) and sends `X-Robots-Tag: noindex, nofollow`; Grafana
-  requires a login (anonymous viewing off on the server).
+- The development site is open and sends `X-Robots-Tag: noindex, nofollow`; a password (Caddy `basic_auth`, from an
+  optional file `dev-auth.caddy`) can be switched on. Grafana shows its dashboards without a login and needs the admin
+  login to edit; `GRAFANA_ANONYMOUS=false` requires a login for viewing too.
 - The telemetry contains no visitor data: the collector removes IP addresses, ports, the browser (user agent) and any
   recorded HTTP headers from every span, log record and metric before anything is stored.
 - Comments are never interpreted as HTML in the browser.
