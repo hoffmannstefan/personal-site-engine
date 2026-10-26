@@ -8,11 +8,15 @@ name: CI
 on:
   push:
     branches: [main, develop]
-    # Changes to these files alone neither test nor deploy anything. Not all *.md files:
-    # the posts in info/posts/ are Markdown too and must still be deployed.
+    # Changes to these files alone neither test nor deploy anything (the documentation and the files for
+    # coding agents). Not all *.md files: the posts in info/posts/ are Markdown too and must still be deployed.
     paths-ignore:
       - README.md
       - TODO.md
+      - AGENTS.md
+      - CLAUDE.md
+      - docs/**
+      - .claude/**
   pull_request:
   workflow_dispatch:
     inputs:
