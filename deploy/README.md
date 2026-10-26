@@ -75,14 +75,25 @@ networks:
 ```
 
 The new sites come from [Caddyfile](Caddyfile): copy its blocks into Caddy's Caddyfile, but **leave the block for
-`www.stefan-hoffmann.de` out for now**, so the current site keeps running until step 6. Replace the password line of
-`dev.stefan-hoffmann.de`: the user name of your choice and the hash of
+`www.stefan-hoffmann.de` out for now**, so the current site keeps running until step 6. Then reload Caddy:
+`docker exec <caddy container> caddy reload --config /etc/caddy/Caddyfile`.
+
+`dev.stefan-hoffmann.de` is open by default; search engines are only asked to stay away. For a password, create
+`dev-auth.caddy` next to Caddy's Caddyfile, with the user name of your choice and the hash of the password, and
+reload Caddy:
 
 ```bash
-docker exec -it <caddy container> caddy hash-password
+docker exec -it <caddy container> caddy hash-password       # prints the hash
 ```
 
-Then reload Caddy: `docker exec <caddy container> caddy reload --config /etc/caddy/Caddyfile`.
+```
+basic_auth {
+	stefan $2a$14$…the hash…
+}
+```
+
+Delete the file and reload Caddy to open the site again. Without the file, Caddy logs the warning "No files matching
+import glob pattern"; that is expected.
 
 ## 3. Folders and .env files
 
@@ -127,7 +138,9 @@ Actions → Observability → Run workflow, with "Deploy" ticked. Afterwards on 
 cd /srv/observability && docker compose ps     # five services, all running
 ```
 
-https://grafana.stefan-hoffmann.de shows the Grafana login.
+https://grafana.stefan-hoffmann.de shows the dashboard without a login; editing needs the admin login (`admin` /
+`GRAFANA_ADMIN_PASSWORD`). For a login to view as well, set `GRAFANA_ANONYMOUS=false` in `/srv/observability/.env`
+and run `docker compose up -d` there.
 
 ## 6. Switch production over
 
@@ -144,7 +157,7 @@ curl -sI https://www.stefan-hoffmann.de | head -1
 ## 7. Start development
 
 Push to `develop`: the deploy sets up the development site in `/srv/site/development`. It is at
-https://dev.stefan-hoffmann.de, behind the password from step 2.
+https://dev.stefan-hoffmann.de, open or behind the optional password from step 2.
 
 Production gets the code that ran on development: merge `develop` into `main` as a fast-forward
 (`git checkout main && git merge --ff-only develop && git push`), so the commit stays the same. CI builds it once more

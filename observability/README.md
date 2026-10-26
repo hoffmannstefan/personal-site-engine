@@ -36,8 +36,8 @@ on (`attributes/privacy` in `otel-collector.yaml`). This is why the stack uses t
 Metrics, and so the dashboard, are complete either way: the applications compute them before anything is left out.
 Measured with `some` under load, about 13 % of the traces were kept, every error among them.
 
-**On the server**, Caddy reaches Grafana at https://grafana.stefan-hoffmann.de, with anonymous viewing switched off;
-see [deploy/README.md](../deploy/README.md).
+**On the server**, Caddy reaches Grafana at https://grafana.stefan-hoffmann.de; the dashboards can be viewed without
+a login there too, unless `GRAFANA_ANONYMOUS=false`. See [deploy/README.md](../deploy/README.md).
 
 ## Start
 
@@ -60,7 +60,7 @@ Stop with `docker compose -f observability/compose.yaml down` (add `-v` to delet
 
 Only Grafana has a port on the host, bound to `127.0.0.1`. Set `GRAFANA_ADDRESS=0.0.0.0` (and a real
 `GRAFANA_ADMIN_PASSWORD`) to open it to the network. On the vServer, Caddy makes it reachable at
-https://grafana.stefan-hoffmann.de instead, with the login required (see [deploy/README.md](../deploy/README.md)).
+https://grafana.stefan-hoffmann.de instead (see [deploy/README.md](../deploy/README.md)).
 
 ## Settings
 
@@ -71,7 +71,7 @@ In `observability/.env`, read by Compose (on the server see
 |---|---|---|
 | `COLLECTOR_KEEP` | `all` | How many traces and logs are kept: `all` or `some` (see below) |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Admin password; only taken on Grafana's very first start |
-| `GRAFANA_ANONYMOUS` | `true` | Dashboards viewable without login; `false` on a server reachable from the internet |
+| `GRAFANA_ANONYMOUS` | `true` | Dashboards viewable without login; `false` requires the login for viewing too |
 | `GRAFANA_ROOT_URL` | `http://localhost:3000` | The address Grafana is reached at, for its links and redirects |
 | `GRAFANA_ADDRESS`, `GRAFANA_PORT` | `127.0.0.1`, `3000` | Where Grafana's port is published on the host |
 | `METRICS_RETENTION` | `30d` | How long Prometheus keeps metrics (Loki and Tempo: 30 days, in their config files) |

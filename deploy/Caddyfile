@@ -15,13 +15,11 @@ www.stefan-hoffmann.de {
 	import personal-site site-production-frontend:8080 30s
 }
 
-# Only for you: a password, and search engines are asked to stay away. The development version sleeps when it is not
-# needed, so Caddy gives up quickly and says so.
+# The development version: open, but search engines are asked to stay away. A password is optional: a file
+# dev-auth.caddy next to this Caddyfile with a basic_auth block switches it on (deploy/README.md, step 2); without the
+# file, Caddy only warns that nothing matches. It sleeps when it is not needed, so Caddy gives up quickly and says so.
 dev.stefan-hoffmann.de {
-	basic_auth {
-		# Replace with your user name and the hash from: docker exec <caddy container> caddy hash-password
-		stefan $2a$14$REPLACE.WITH.THE.OUTPUT.OF.caddy.hash-password.xxxxxxxxxxxxxxxxxxxxxxxx
-	}
+	import dev-auth*.caddy
 	header X-Robots-Tag "noindex, nofollow"
 	import personal-site site-development-frontend:8080 3s
 	handle_errors 502 503 504 {
@@ -29,7 +27,8 @@ dev.stefan-hoffmann.de {
 	}
 }
 
-# Grafana asks for its own login; anonymous viewing is switched off on the server (observability.env.example).
+# Grafana: the dashboards can be viewed without logging in, editing needs the admin login. For a login to view as
+# well, set GRAFANA_ANONYMOUS=false (observability.env.example).
 grafana.stefan-hoffmann.de {
 	encode zstd gzip
 	reverse_proxy observability-grafana:3000

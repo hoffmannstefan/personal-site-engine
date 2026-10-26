@@ -373,9 +373,9 @@ not recorded, so comment texts do not end up in the telemetry either.
 ## Continuous integration and deployment
 
 The site runs on one vServer in two environments, **production** (https://www.stefan-hoffmann.de, from `main`) and
-**development** (https://dev.stefan-hoffmann.de, from `develop`, behind a password), next to the observability stack
-(https://grafana.stefan-hoffmann.de) and behind the server's Caddy. The one-time setup of the server and of GitHub
-is in [deploy/README.md](deploy/README.md).
+**development** (https://dev.stefan-hoffmann.de, from `develop`, optionally behind a password), next to the
+observability stack (https://grafana.stefan-hoffmann.de) and behind the server's Caddy. The one-time setup of the
+server and of GitHub is in [deploy/README.md](deploy/README.md).
 
 The GitHub Actions workflow `.github/workflows/ci.yml` runs on every push to `main` and `develop`, on pull requests
 and by hand:
