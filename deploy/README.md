@@ -36,8 +36,9 @@ container has a fixed limit: if one ever needs more, only that one restarts, not
 ## Requirements
 
 On the server: Docker Engine 25 or newer and Docker Compose 2.24 or newer (`docker version`, `docker compose
-version`), and Caddy 2.8 or newer (`docker exec <caddy container> caddy version`). The DNS records `dev` and
-`grafana` point to the server.
+version`), Caddy 2.8 or newer (`docker exec <caddy container> caddy version`), and rsync, which the deploys copy
+the files with (`rsync --version`; on Debian `sudo apt install rsync`). The DNS records `dev` and `grafana` point to
+the server.
 
 ## 1. Swap
 
