@@ -93,7 +93,8 @@ jobs:
 
       # Restarted, because the services read their configuration files only at startup
       # (Grafana picks up dashboard changes by itself). Telemetry sent meanwhile is retried
-      # by the applications.
+      # by the applications. Removing old images may fail while a deploy of the site prunes
+      # at the same time; the next deploy removes them.
       - name: Start the stack with the new configuration
         run: |
           ssh server "set -e
@@ -101,7 +102,7 @@ jobs:
             docker compose pull
             docker compose up -d --remove-orphans
             docker compose restart otel-collector prometheus loki tempo
-            docker image prune -f"
+            docker image prune -f || echo 'Old images not removed this time.'"
 
       - name: Remove the SSH key
         if: always()

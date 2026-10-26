@@ -205,6 +205,9 @@ jobs:
       # Caddy retries (lb_try_duration), so visitors see a short wait instead of an error.
       # --wait returns once the services are healthy, so a site that does not start fails
       # the deploy. --remove-orphans stops containers of services no longer in compose.yaml.
+      # Removing old images may fail when another deploy prunes at the same time (Docker
+      # allows one prune at a time, e.g. production and development deploying the same
+      # commit); the site is up by then, and the next deploy removes them.
       - name: Pull the new images and restart
         run: |
           ssh server "set -e
@@ -213,7 +216,7 @@ jobs:
             docker compose pull
             docker compose up -d --no-build --remove-orphans --no-deps --force-recreate --wait --wait-timeout 300 backend
             docker compose up -d --no-build --remove-orphans --wait --wait-timeout 300
-            docker image prune -f"
+            docker image prune -f || echo 'Old images not removed this time.'"
 
       - name: Remove the SSH key
         if: always()
