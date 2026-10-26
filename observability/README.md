@@ -20,7 +20,7 @@ backend ──┘           Collector  └─► Loki        logs ───┘
 Data is kept for 30 days in the volumes `prometheus-data`, `loki-data`, `tempo-data` and `grafana-data`. Every
 service has a memory limit (collector 128 MB, Prometheus, Loki and Tempo 192 MB each, Grafana 288 MB; measured under
 load all five together use about 580 MB); `COLLECTOR_MEMORY`, `GRAFANA_MEMORY` etc. in `observability/.env` change
-them.
+them (see [Settings](#settings)).
 
 **Privacy.** The collector removes the visitor's IP address, port and browser (`client.address`, `network.peer.*`,
 `user_agent.original`) and any recorded HTTP headers from every span, log record and metric before passing anything
@@ -59,8 +59,24 @@ that file it runs as before, sending nothing. To report a real version for a loc
 Stop with `docker compose -f observability/compose.yaml down` (add `-v` to delete the stored data).
 
 Only Grafana has a port on the host, bound to `127.0.0.1`. Set `GRAFANA_ADDRESS=0.0.0.0` (and a real
-`GRAFANA_ADMIN_PASSWORD`) to open it to the network; on a server, an SSH tunnel (`ssh -L 3000:localhost:3000 …`)
-keeps it private.
+`GRAFANA_ADMIN_PASSWORD`) to open it to the network. On the vServer, Caddy makes it reachable at
+https://grafana.stefan-hoffmann.de instead, with the login required (see [deploy/README.md](../deploy/README.md)).
+
+## Settings
+
+In `observability/.env`, read by Compose (on the server see
+[deploy/observability.env.example](../deploy/observability.env.example)):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `COLLECTOR_KEEP` | `all` | How many traces and logs are kept: `all` or `some` (see below) |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | Admin password; only taken on Grafana's very first start |
+| `GRAFANA_ANONYMOUS` | `true` | Dashboards viewable without login; `false` on a server reachable from the internet |
+| `GRAFANA_ROOT_URL` | `http://localhost:3000` | The address Grafana is reached at, for its links and redirects |
+| `GRAFANA_ADDRESS`, `GRAFANA_PORT` | `127.0.0.1`, `3000` | Where Grafana's port is published on the host |
+| `METRICS_RETENTION` | `30d` | How long Prometheus keeps metrics (Loki and Tempo: 30 days, in their config files) |
+| `COLLECTOR_MEMORY`, `PROMETHEUS_MEMORY`, `LOKI_MEMORY`, `TEMPO_MEMORY`, `GRAFANA_MEMORY` | `128m`, `192m`, `192m`, `192m`, `288m` | Memory limits |
+| `COLLECTOR_GOMEMLIMIT`, `LOKI_GOMEMLIMIT`, `TEMPO_GOMEMLIMIT`, `GRAFANA_GOMEMLIMIT` | `100MiB`, `160MiB`, `160MiB`, `230MiB` | Where these Go services' garbage collector starts working harder; keep it below the limit (Prometheus derives its own from the limit) |
 
 ## The dashboard
 

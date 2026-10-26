@@ -56,8 +56,9 @@ With a JDK 21, in two terminals from the project folder:
 ```
 
 The backend's content paths (`./info/…`, `./data/`) are relative to the working directory, so start it from the
-project folder (`spring-boot:run` does that by itself). Without a running backend the frontend answers every page
-with "Temporarily unavailable" (503).
+project folder (`spring-boot:run` does that by itself). Without a running backend the frontend keeps trying for 20
+seconds (`BACKEND_RETRY`), so start the backend first; after that, pages answer with "Temporarily unavailable"
+(503).
 
 With Docker (the image build compiles the application and runs the tests):
 
