@@ -425,16 +425,61 @@ These are proposed targets; none has been measured yet.
 
 ## 15. Observability
 
-Current state (logs only):
+### 15.1 Logs
 
 - Backend: number of posts and publications loaded, skipped posts and BibTeX entries with reasons, unknown keys in
   `site.yaml`, unknown `related` keys
 - Frontend: a warning for every failed backend call, with the reason
 - Both: Spring Boot startup and error logs, readable with `docker compose logs`
 
-Not yet available: health endpoints, metrics, request logs, alerting.
+### 15.2 OpenTelemetry
 
-Logs must not contain the admin token or comment bodies.
+- Both services are instrumented with the OpenTelemetry Spring Boot starter and export over OTLP (http/protobuf):
+  - traces: a server span per HTTP request; in the frontend a client span per call to the backend, in the backend a
+    client span per JDBC statement;
+  - metrics: `http.server.request.duration` and the JVM runtime metrics;
+  - logs: each service's Logback records.
+- The frontend passes the trace context to the backend in the W3C `traceparent` header, for page content and for
+  forwarded `/api/**` and `/images/**` requests alike, so one trace covers a page request in both services.
+- Every span, metric and log record carries these resource attributes:
+
+| Attribute | Source | Values |
+| --- | --- | --- |
+| `service.name` | `spring.application.name` | `homepage-frontend`, `homepage-backend` |
+| `deployment.environment.name` | env `DEPLOYMENT_ENVIRONMENT` | `local` (default), `production` (set by the deploy job) |
+| `service.version` | env `SERVICE_VERSION`, set in the image from the build argument `VERSION` | short commit hash (CI images), `dev` (local images), project version (`./mvnw`) |
+
+- Export is off by default (`otel.sdk.disabled=true`) and is switched on with `OTEL_SDK_DISABLED=false` and
+  `OTEL_EXPORTER_OTLP_ENDPOINT`; no receiver is part of the deployment yet.
+- SQL statements are recorded without their parameters, so comment texts never reach the telemetry.
+
+### 15.3 Application metrics
+
+| Metric | Service | Attributes | Meaning |
+| --- | --- | --- | --- |
+| `homepage.page.views` | frontend | `page`, `post.slug` | Pages shown (not 404 or 503) |
+| `homepage.backend.unavailable` | frontend | `source` (`page`, `proxy`) | 503 answers because the backend was not available |
+| `homepage.comment.submissions` | backend | `outcome` (`accepted`, `spam`, `rate_limited`, `unknown_parent`), `post.slug` | Comments submitted |
+| `homepage.comment.deletions` | backend | `outcome` (`deleted`, `forbidden`, `not_found`) | Delete requests |
+| `homepage.comment.stored` | backend | | Comments in the database (gauge) |
+| `homepage.content.items` | backend | `kind` (`post`, `publication`) | Content loaded at startup (gauge) |
+| `homepage.content.skipped` | backend | `kind` (`post`) | Markdown files skipped because of a mistake (gauge) |
+
+`post.slug` only takes the slugs of existing posts, so the number of series stays bounded.
+
+### 15.4 Observability stack
+
+`observability/` is a separate Compose project (`observability`) with an OpenTelemetry Collector, Prometheus
+(metrics over OTLP, `deployment.environment.name` and `service.version` promoted to labels), Loki (logs over OTLP,
+the same two as stream labels), Tempo (traces) and Grafana with the provisioned dashboard "Personal Site", whose
+panels are filtered by the variables Environment and Version. The application joins the stack's network through the
+extra Compose file `observability/connect-app.yaml`. Only Grafana publishes a port, on `127.0.0.1:3000`. Data is kept
+for 30 days.
+
+Not yet available: the stack on the production server (the deploy job copies neither `observability/` nor the extra
+Compose file), health endpoints, alerting.
+
+Logs and telemetry must not contain the admin token or comment bodies.
 
 ## 16. Acceptance criteria
 
@@ -485,7 +530,6 @@ v1.0 is accepted when all of the following are true. Items 1–9 are covered by 
 - Delete the old `personal-site-engine` image on GHCR
 
 ## 18. Decisions still required
-
 1. Whether the public site should expose the content API (`/api/site`, `/api/posts`, `/api/publications`) or only the
    comment endpoints.
 2. Whether the frontend should cache backend responses, and how a content change would then reach it.
@@ -497,6 +541,8 @@ v1.0 is accepted when all of the following are true. Items 1–9 are covered by 
 7. What to do with sample content that shows unsupported features (`info/posts/mermaid-support.md`) and with the
    "under construction" note in `info/site.yaml`.
 8. Which of the non-goals (RSS feed, syntax highlighting, archive pages) come next.
+9. Whether the observability stack runs on the production server next to the site (and how Grafana is reached
+   there), or the production telemetry goes to a hosted service.
 
 ## 19. Recommended next step
 

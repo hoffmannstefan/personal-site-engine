@@ -2,6 +2,9 @@ package com.homepage.backend.comment;
 
 import com.homepage.backend.post.PostService;
 import com.homepage.backend.site.SiteProperties;
+import com.homepage.backend.telemetry.BackendMetrics;
+import com.homepage.backend.telemetry.BackendMetrics.Deletion;
+import com.homepage.backend.telemetry.BackendMetrics.Submission;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -19,12 +22,15 @@ public class CommentService {
     private final CommentRepository comments;
     private final PostService posts;
     private final RateLimiter rateLimiter;
+    private final BackendMetrics metrics;
     private final String adminToken;
 
-    public CommentService(CommentRepository comments, PostService posts, SiteProperties site, RateLimiter rateLimiter) {
+    public CommentService(CommentRepository comments, PostService posts, SiteProperties site, RateLimiter rateLimiter,
+                          BackendMetrics metrics) {
         this.comments = comments;
         this.posts = posts;
         this.rateLimiter = rateLimiter;
+        this.metrics = metrics;
         this.adminToken = site.comments().adminToken();
     }
 
@@ -41,25 +47,33 @@ public class CommentService {
         String body = request.body().strip();
         if (request.website() != null && !request.website().isBlank()) {
             // Honeypot tripped. Answer like a success so bots learn nothing.
+            metrics.commentSubmitted(slug, Submission.SPAM);
             return new CommentDto.View(null, request.parentId(), author, body, Instant.now());
         }
         if (!rateLimiter.tryAcquire(clientKey)) {
+            metrics.commentSubmitted(slug, Submission.RATE_LIMITED);
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "You are commenting too fast. Please wait a moment.");
         }
         Long parentId = resolveParent(slug, request.parentId());
-        return CommentDto.View.of(comments.save(new Comment(slug, parentId, author, body)));
+        CommentDto.View created = CommentDto.View.of(comments.save(new Comment(slug, parentId, author, body)));
+        metrics.commentSubmitted(slug, Submission.ACCEPTED);
+        return created;
     }
 
     @Transactional
     public void delete(Long id, String token) {
         if (adminToken == null || adminToken.isBlank() || token == null || !constantTimeEquals(adminToken, token)) {
+            metrics.commentDeletion(Deletion.FORBIDDEN);
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed");
         }
-        Comment comment = comments.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
+        Comment comment = comments.findById(id).orElseThrow(() -> {
+            metrics.commentDeletion(Deletion.NOT_FOUND);
+            return new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found");
+        });
         comments.deleteByParentId(comment.getId()); // replies go with their parent
         comments.delete(comment);
+        metrics.commentDeletion(Deletion.DELETED);
     }
 
     /** Number of comments per post slug. */
@@ -77,7 +91,10 @@ public class CommentService {
         }
         Comment parent = comments.findById(parentId)
                 .filter(c -> c.getPostSlug().equals(slug))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown comment to reply to"));
+                .orElseThrow(() -> {
+                    metrics.commentSubmitted(slug, Submission.UNKNOWN_PARENT);
+                    return new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown comment to reply to");
+                });
         return parent.getParentId() != null ? parent.getParentId() : parent.getId();
     }
 

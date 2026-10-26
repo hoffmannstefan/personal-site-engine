@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # One image per module: docker build --build-arg MODULE=backend (or frontend) .
+# VERSION is the deployed version both services report in their telemetry; CI passes the commit hash.
 ARG MODULE=backend
 
 # Build stage: compiles and tests the module with a full JDK. The Maven cache survives between builds.
@@ -20,4 +21,7 @@ FROM eclipse-temurin:21-jre
 ARG MODULE
 WORKDIR /app
 COPY --from=build /src/${MODULE}/target/${MODULE}-*.jar app.jar
+# Set last, so a new version does not invalidate the build layers above.
+ARG VERSION=dev
+ENV SERVICE_VERSION=${VERSION}
 ENTRYPOINT ["java", "-jar", "app.jar"]

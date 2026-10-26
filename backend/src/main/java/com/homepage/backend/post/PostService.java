@@ -37,6 +37,8 @@ public class PostService {
     private static final int WORDS_PER_MINUTE = 212;
 
     private final Map<String, Post> bySlug = new LinkedHashMap<>();
+    /** Files that are no post because of a mistake (name, title, date); drafts are not counted. */
+    private int skipped;
     private final MarkdownRenderer markdown;
     private final String defaultAuthor;
     private final boolean externalLinksInNewTab;
@@ -65,6 +67,11 @@ public class PostService {
         return find(slug).isPresent();
     }
 
+    /** Number of Markdown files skipped at startup because of a mistake in their name or front matter. */
+    public int skipped() {
+        return skipped;
+    }
+
     private List<Post> loadMarkdownFolder(String dir) {
         if (dir == null || dir.isBlank() || !Files.isDirectory(Path.of(dir))) {
             log.info("No posts folder at {}; the blog is empty", dir);
@@ -85,8 +92,7 @@ public class PostService {
     private Optional<Post> fromMarkdown(String filename, String source) {
         String slug = filename.substring(0, filename.length() - ".md".length());
         if (!SLUG.matcher(slug).matches()) {
-            log.warn("Skipping {}: the file name must be lower case letters, digits and hyphens (it becomes the URL)", filename);
-            return Optional.empty();
+            return skip(filename, "the file name must be lower case letters, digits and hyphens (it becomes the URL)");
         }
         MarkdownRenderer.Rendered r = markdown.render(source.replace("\r\n", "\n"));
         Map<String, List<String>> front = r.frontMatter();
@@ -95,15 +101,13 @@ public class PostService {
         }
         String title = first(front, "title");
         if (title == null || title.isBlank()) {
-            log.warn("Skipping {}: the front matter needs a 'title'", filename);
-            return Optional.empty();
+            return skip(filename, "the front matter needs a 'title'");
         }
         LocalDate date;
         try {
             date = LocalDate.parse(String.valueOf(first(front, "date")));
         } catch (DateTimeParseException e) {
-            log.warn("Skipping {}: the front matter needs a 'date' like 2026-10-06", filename);
-            return Optional.empty();
+            return skip(filename, "the front matter needs a 'date' like 2026-10-06");
         }
         List<String> authors = front.getOrDefault("authors", front.getOrDefault("author", List.of()));
         int minutes = Math.max(1, (r.words() + WORDS_PER_MINUTE - 1) / WORDS_PER_MINUTE);
@@ -112,6 +116,12 @@ public class PostService {
                 front.getOrDefault("categories", List.of()), front.getOrDefault("tags", List.of()),
                 externalLinksInNewTab ? MarkdownRenderer.externalLinksInNewTab(r.html()) : r.html(),
                 first(front, "link"), r.math()));
+    }
+
+    private Optional<Post> skip(String filename, String reason) {
+        log.warn("Skipping {}: {}", filename, reason);
+        skipped++;
+        return Optional.empty();
     }
 
     private static String first(Map<String, List<String>> front, String key) {

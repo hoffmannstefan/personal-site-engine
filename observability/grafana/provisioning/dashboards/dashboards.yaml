@@ -1,0 +1,10 @@
+# Loads the dashboards in /etc/grafana/dashboards (observability/grafana/dashboards) into the folder "Personal Site".
+apiVersion: 1
+
+providers:
+  - name: personal-site
+    folder: Personal Site
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards

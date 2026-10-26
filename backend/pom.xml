@@ -15,7 +15,21 @@
 
     <properties>
         <commonmark.version>0.30.0</commonmark.version>
+        <opentelemetry-instrumentation.version>2.32.0</opentelemetry-instrumentation.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keeps all OpenTelemetry artifacts on the versions the starter is built for, over Spring Boot's own. -->
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom</artifactId>
+                <version>${opentelemetry-instrumentation.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -74,10 +88,20 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Traces, metrics and logs over OTLP: Spring MVC, JDBC, Logback and the JVM, configured by otel.* properties. -->
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-spring-boot-starter</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

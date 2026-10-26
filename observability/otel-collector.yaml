@@ -1,0 +1,44 @@
+# Receives traces, metrics and logs over OTLP and passes each on: traces to Tempo, metrics to Prometheus, logs to Loki.
+# The resource attributes (service.name, deployment.environment.name, service.version) travel along unchanged.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Refuses data instead of running out of memory when a backend is slow.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch: {}
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  # Prometheus' own OTLP receiver (needs --web.enable-otlp-receiver).
+  otlp_http/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+  # Loki's native OTLP endpoint.
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/loki]

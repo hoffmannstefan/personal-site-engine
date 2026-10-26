@@ -5,11 +5,18 @@ services:
       context: .
       args:
         MODULE: backend
+        VERSION: ${VERSION:-dev}
     image: ghcr.io/hoffmannstefan/personal-site-engine-backend:latest
     # Same user as the owner of ./data on the host, so the database files stay writable for both.
     user: "1000:1000"
     environment:
       COMMENTS_ADMIN_TOKEN: ${COMMENTS_ADMIN_TOKEN:-}
+      # Reported in the telemetry of both services as deployment.environment.name; the deploy job sets production.
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+      # OpenTelemetry export is off until a receiver exists, e.g. OTEL_SDK_DISABLED=false and
+      # OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 in .env.
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
     volumes:
       - ./data:/app/data        # comments database (H2)
       - ./info:/app/info:ro     # site.yaml, images/, own posts (posts/), publications.bib
@@ -21,12 +28,17 @@ services:
       context: .
       args:
         MODULE: frontend
+        VERSION: ${VERSION:-dev}
     image: ghcr.io/hoffmannstefan/personal-site-engine-frontend:latest
     ports:
       - "8080:8080"
     user: "1000:1000"
     environment:
       BACKEND_URL: http://backend:8081
+      # Telemetry as for the backend; with both switched on, one trace covers a page request in both services.
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
     depends_on:
       - backend
     restart: unless-stopped

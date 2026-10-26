@@ -33,6 +33,9 @@ browser ──► frontend :8080 ──HTTP/JSON──► backend :8081 ──�
 * **Light/dark mode** with a switch in the menu bar.
 * **No rebuild for content changes**: the backend reads `info/` at startup, so restarting it publishes changes.
 * **REST API**: site, posts, publications and comments as JSON, see [REST API](#rest-api).
+* **Telemetry**: both services send traces, metrics and logs via OpenTelemetry, with their own metrics for page
+  views, comments and content; a separate observability stack with a Grafana dashboard is in `observability/`, see
+  [Telemetry](#telemetry).
 
 Not included: tag/category/author archive pages, an RSS feed, syntax highlighting for code blocks, diagram rendering
 (e.g. Mermaid) and translations.
@@ -300,13 +303,66 @@ works offline. The backend marks posts that contain a formula (`"math": true`), 
 backend writes every formula as `\( \)` / `\[ \]`, so `$` is not a delimiter in the browser (see
 `frontend/src/main/resources/static/js/mathjax-config.js`).
 
+## Telemetry
+
+Both services are instrumented with OpenTelemetry (the `opentelemetry-spring-boot-starter`): traces of every HTTP
+request, of the frontend's calls to the backend and of the backend's database queries, HTTP and JVM metrics, and their
+log records, sent over OTLP (http/protobuf). The frontend passes the trace on to the backend in the W3C `traceparent`
+header, so one trace covers a page request in both services:
+
+```
+[homepage-frontend] GET /posts/{slug}/
+├── [homepage-frontend] GET (call to the backend)
+│   └── [homepage-backend] GET /api/site
+└── [homepage-frontend] GET (call to the backend)
+    └── [homepage-backend] GET /api/posts/{slug}
+```
+
+Calls forwarded to the backend (comments, images) continue the trace the same way. Every span, metric and log record
+names
+
+| Attribute | Value |
+|---|---|
+| `service.name` | `homepage-frontend` or `homepage-backend` (`spring.application.name`) |
+| `deployment.environment.name` | `DEPLOYMENT_ENVIRONMENT`: `local` by default, `production` when deployed by CI |
+| `service.version` | `SERVICE_VERSION`: the commit hash in images built by CI (as in the image tag `sha-…`), `dev` in images built locally unless the build argument `VERSION` is given (e.g. `VERSION=$(git rev-parse --short HEAD) docker compose build`), the project version (`0.0.1-SNAPSHOT`) with `./mvnw` |
+
+Export is **off by default**, so nothing is sent and nothing is logged about a missing receiver. To switch it on, point
+both services at an OTLP receiver (an OpenTelemetry Collector, Grafana, Jaeger, …), e.g. in `.env` next to
+`compose.yaml`:
+
+```bash
+OTEL_SDK_DISABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+```
+
+Besides the HTTP and JVM metrics, the services record their own: page views per page and post, comments by outcome
+(accepted, spam, rate-limited, unknown parent), delete requests by outcome, stored comments, content loaded and
+skipped at startup, and 503 answers while the backend is down. The list is in
+[observability/README.md](observability/README.md#metrics).
+
+**Local observability stack.** `observability/` holds a separate Compose project with an OpenTelemetry Collector,
+Prometheus, Loki, Tempo and Grafana, including a dashboard filterable by environment and version:
+
+```bash
+docker compose -f observability/compose.yaml up -d                                  # the stack
+docker compose -f compose.yaml -f observability/connect-app.yaml up -d --build      # the app, sending to it
+```
+
+Grafana is then at http://localhost:3000; see [observability/README.md](observability/README.md).
+
+All standard `OTEL_*` variables work (e.g. `OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_EXPORTER_OTLP_HEADERS`). The deploy job
+sets `DEPLOYMENT_ENVIRONMENT=production` itself; for `docker compose up` by hand on the server, also put it in `.env`.
+Compose passes these variables to both services. Query parameters of SQL statements are not recorded, so comment texts
+do not end up in the telemetry.
+
 ## Continuous integration and deployment
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request:
 
 1. **Build and test**: `./mvnw verify` with Java 21, both modules.
 2. **Docker images**: built after green tests, one per module from the same `Dockerfile` (`--build-arg
-   MODULE=backend|frontend`); pushes to `main` publish them as `ghcr.io/hoffmannstefan/personal-site-engine-backend`
+   MODULE=backend|frontend`, and `VERSION` with the short commit hash for the telemetry); pushes to `main` publish them as `ghcr.io/hoffmannstefan/personal-site-engine-backend`
    and `…-frontend` (tags `latest` and the commit hash).
 3. **Deploy** (from `main` only, see below): copies `compose.yaml` and `info/` to the server via rsync (`info/` is
    mirrored, so files deleted in the repository disappear on the server too), pulls the new images and recreates the
@@ -340,6 +396,8 @@ Environment variables:
 | `SITE_CONFIG`, `POSTS_DIR`, `PUBLICATIONS_FILE`, `IMAGES_DIR` | backend | Content locations |
 | `COMMENTS_ADMIN_TOKEN` | backend | Enables deleting comments |
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | backend | Comment database |
+| `DEPLOYMENT_ENVIRONMENT`, `SERVICE_VERSION` | both | Environment and version in the telemetry, see [Telemetry](#telemetry) |
+| `OTEL_SDK_DISABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_*` | both | Switch on and configure the OpenTelemetry export |
 | `BACKEND_URL` | frontend | Address of the backend (default `http://localhost:8081`; `http://backend:8081` in Compose) |
 | `THYMELEAF_CACHE=false` | frontend | Live template editing |
 | `PORT` | both | Port to listen on (backend 8081, frontend 8080) |
@@ -358,6 +416,8 @@ A Maven project with two modules; the parent `pom.xml` builds both.
   display entries, links the arXiv preprints and groups the list.
 * `comment/` entity, repository, service, REST controller, rate limiter.
 * `web/` the content API (`ContentController`), error handling; `ImageConfig` serves `info/images/` under `/images/`.
+* `telemetry/` the backend's own metrics (`BackendMetrics`): comments by outcome, delete requests, stored comments,
+  content loaded and skipped at startup.
 
 The backend's tests use their own content in `backend/src/test/resources/` (`info/site.yaml`, `info/posts/`,
 `publications-test.bib`), so the content in `info/` can change freely.
@@ -367,7 +427,8 @@ The backend's tests use their own content in `backend/src/test/resources/` (`inf
 * `content/` reads the backend's API: `ContentClient` and the records it returns (`Site`, `PostPage`, `Post`,
   `Publications`).
 * `web/` page controller; `SiteAttributes` provides `site` to every template and turns a backend that is down into
-  a 503 page; `BackendProxy` passes `/api/**` and `/images/**` on to the backend.
+  a 503 page; `BackendProxy` passes `/api/**` and `/images/**` on to the backend; `FrontendMetrics` counts page
+  views and 503 answers.
 
 Resources under `frontend/src/main/resources/`:
 
@@ -377,8 +438,16 @@ Resources under `frontend/src/main/resources/`:
 * `static/js/comments.js` is the comment UI; `static/css/site.css` holds the site's own styles (colours for
   light/dark, comments, publications); the favicons sit at the top of `static/`.
 
-The frontend's tests replace the backend with a stub (`PagesTest`) or with a small fake HTTP server
-(`BackendTest`), so they run without a backend.
+The frontend's tests replace the backend with a stub (`PagesTest`, `FrontendMetricsTest`) or with a small fake HTTP
+server (`BackendTest`, `TraceTest`), so they run without a backend.
+
+The telemetry tests switch the OpenTelemetry SDK on and read what would be exported from memory: the resource
+attributes (`TelemetryTest`, `TelemetryDefaultsTest`), the backend's and frontend's own metrics (`BackendMetricsTest`,
+`FrontendMetricsTest`) and the trace passed from the frontend to the backend (`TraceTest`).
+
+**Observability**, `observability/`: a separate Compose project with the OpenTelemetry Collector, Prometheus, Loki,
+Tempo and Grafana, its configuration, the dashboard `grafana/dashboards/personal-site.json` and `connect-app.yaml`,
+which connects the application to it; see [observability/README.md](observability/README.md).
 
 ## Credits
 

@@ -67,6 +67,8 @@ class PostServiceTest {
         for (String slug : new String[] {"no-title", "bad-date", "Bad Name", "no-front-matter", "draft", "notes"}) {
             assertThat(s.exists(slug)).as(slug).isFalse();
         }
+        // the four broken files; a draft is hidden on purpose and .txt files are no posts
+        assertThat(s.skipped()).isEqualTo(4);
     }
 
     @Test

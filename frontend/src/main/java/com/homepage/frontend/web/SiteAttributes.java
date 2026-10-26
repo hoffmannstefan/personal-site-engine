@@ -24,9 +24,11 @@ class SiteAttributes {
     private static final Logger log = LoggerFactory.getLogger(SiteAttributes.class);
 
     private final ContentClient content;
+    private final FrontendMetrics metrics;
 
-    SiteAttributes(ContentClient content) {
+    SiteAttributes(ContentClient content, FrontendMetrics metrics) {
         this.content = content;
+        this.metrics = metrics;
     }
 
     @ModelAttribute("site")
@@ -42,6 +44,7 @@ class SiteAttributes {
     @ExceptionHandler(RestClientException.class)
     void backendUnavailable(RestClientException e, HttpServletResponse response) throws IOException {
         log.warn("Cannot read the page content from the backend: {}", e.getMessage());
+        metrics.backendUnavailable("page");
         response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value());
     }
 }

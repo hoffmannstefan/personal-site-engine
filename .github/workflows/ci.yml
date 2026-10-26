@@ -75,6 +75,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The version both services report in their telemetry: the commit, as in the sha-… image tag.
+      - name: Version
+        id: version
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Image tags
         id: meta
         uses: docker/metadata-action@v5
@@ -89,7 +94,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: MODULE=${{ matrix.module }}
+          build-args: |
+            MODULE=${{ matrix.module }}
+            VERSION=${{ steps.version.outputs.short }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -121,6 +128,8 @@ jobs:
       url: https://www.stefan-hoffmann.de
     env:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      # Reported in the telemetry of both services as deployment.environment.name.
+      DEPLOYMENT_ENVIRONMENT: production
     steps:
       # Fails instead of deploying to a half-configured target, e.g. rsync to / with an empty DEPLOY_PATH.
       - name: Check secrets
@@ -176,6 +185,7 @@ jobs:
         run: |
           ssh server "set -e
             cd '$DEPLOY_PATH'
+            export DEPLOYMENT_ENVIRONMENT='$DEPLOYMENT_ENVIRONMENT'
             docker compose pull
             docker compose up -d --no-build --force-recreate --remove-orphans
             docker image prune -f"

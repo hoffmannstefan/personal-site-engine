@@ -40,10 +40,12 @@ class BackendProxy {
 
     private final RestClient backend;
     private final String backendUrl;
+    private final FrontendMetrics metrics;
 
-    BackendProxy(RestClient backend, BackendProperties properties) {
+    BackendProxy(RestClient backend, BackendProperties properties, FrontendMetrics metrics) {
         this.backend = backend;
         this.backendUrl = properties.backendUrl();
+        this.metrics = metrics;
     }
 
     @RequestMapping("/api/**")
@@ -59,6 +61,7 @@ class BackendProxy {
     @ExceptionHandler(RestClientException.class)
     ProblemDetail backendUnavailable(RestClientException e) {
         log.warn("Cannot pass the request on to the backend: {}", e.getMessage());
+        metrics.backendUnavailable("proxy");
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
                 "The site is temporarily unavailable. Please try again in a moment.");
     }

@@ -1,0 +1,23 @@
+# Connects the application to the observability stack. Use it as an extra Compose file for the application, from the
+# project folder, after starting the stack (docker compose -f observability/compose.yaml up -d):
+#
+#   docker compose -f compose.yaml -f observability/connect-app.yaml up -d --build
+#
+# The application stays a Compose project of its own; it only joins the network "observability" and switches on
+# its OpenTelemetry export to the collector there. On a server, COMPOSE_FILE=compose.yaml:observability/connect-app.yaml
+# in .env makes plain "docker compose" commands use it too.
+services:
+  backend:
+    environment: &telemetry
+      OTEL_SDK_DISABLED: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Metrics every 15 s instead of every minute, so the dashboard follows closely.
+      OTEL_METRIC_EXPORT_INTERVAL: "15000"
+    networks: [default, observability]
+  frontend:
+    environment: *telemetry
+    networks: [default, observability]
+
+networks:
+  observability:
+    external: true

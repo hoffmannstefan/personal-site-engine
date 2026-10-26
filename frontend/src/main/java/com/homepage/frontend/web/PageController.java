@@ -22,17 +22,21 @@ import org.springframework.web.server.ResponseStatusException;
 class PageController {
 
     private final ContentClient content;
+    private final FrontendMetrics metrics;
 
-    PageController(ContentClient content) {
+    PageController(ContentClient content, FrontendMetrics metrics) {
         this.content = content;
+        this.metrics = metrics;
     }
 
     /** The start page only needs the site, which {@link SiteAttributes} has already fetched. */
     @GetMapping("/")
     String home(@ModelAttribute("site") Site site) {
         if (site == Site.UNAVAILABLE) {
+            metrics.backendUnavailable("page");
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         }
+        metrics.pageView("home");
         return "home";
     }
 
@@ -43,6 +47,7 @@ class PageController {
         model.addAttribute("groups", publications.groups());
         model.addAttribute("groupBy", publications.groupBy());
         model.addAttribute("groupings", Publications.GROUPINGS);
+        metrics.pageView("publications");
         return "publications";
     }
 
@@ -59,6 +64,7 @@ class PageController {
         model.addAttribute("posts", posts.posts());
         model.addAttribute("page", posts.page());
         model.addAttribute("pages", posts.pages());
+        metrics.pageView("post_list");
         return "posts";
     }
 
@@ -68,6 +74,7 @@ class PageController {
         model.addAttribute("nav", "posts");
         model.addAttribute("pageTitle", post.title());
         model.addAttribute("post", post);
+        metrics.postView(post.slug());
         return "post";
     }
 }

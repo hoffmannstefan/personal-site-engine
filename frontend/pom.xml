@@ -13,6 +13,23 @@
     <name>homepage-frontend</name>
     <description>Pages of the homepage, rendered with Thymeleaf from the backend's JSON API</description>
 
+    <properties>
+        <opentelemetry-instrumentation.version>2.32.0</opentelemetry-instrumentation.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keeps all OpenTelemetry artifacts on the versions the starter is built for, over Spring Boot's own. -->
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom</artifactId>
+                <version>${opentelemetry-instrumentation.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -27,10 +44,21 @@
             <artifactId>mathjax</artifactId>
             <version>3.2.2</version>
         </dependency>
+        <!-- Traces, metrics and logs over OTLP: Spring MVC, the RestClient to the backend (which passes the trace on
+             in traceparent), Logback and the JVM, configured by otel.* properties. -->
+        <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-spring-boot-starter</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
