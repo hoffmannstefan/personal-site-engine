@@ -67,9 +67,18 @@ docker compose logs -f
 docker compose down
 ```
 
-Compose starts both services. Only the frontend gets a port on the host; the backend is reachable only by the
-frontend, inside the Compose network. Compose mounts `./info` read-only for the content and `./data` for the comment
-database into the backend.
+Compose starts both services. Only the frontend gets a port on the host (`SITE_PORT`, default 8080); the backend is
+reachable only by the frontend, inside the Compose network. Compose mounts `./info` read-only for the content and
+`./data` for the comment database into the backend.
+
+* **Memory**: each service has a fixed limit (backend 320 MB, frontend 256 MB) and Java settings that stay well
+  inside it; measured under load, the backend uses about 240 MB and the frontend about 150 MB. `BACKEND_MEMORY`,
+  `FRONTEND_MEMORY`, `BACKEND_JAVA_OPTIONS` and `FRONTEND_JAVA_OPTIONS` in `.env` change them.
+* **Health checks**: a service is healthy once its port is open, which Spring Boot does only after everything is
+  loaded. The frontend starts only after the backend is healthy, so a fresh start never shows 503 pages.
+* **Restarts**: while the frontend cannot reach the backend (e.g. while it restarts), it tries again for up to 20
+  seconds (`BACKEND_RETRY`) before a page fails, so a restart of the backend only makes pages wait. Only a failed
+  connection is retried, so a comment is never sent twice.
 
 `./mvnw` needs a full JDK (with `javac`); with only a JRE it stops with "release version 21 not supported". To run
 the tests without a local JDK:
@@ -290,7 +299,8 @@ The content changes only with a restart of the backend; the frontend caches noth
 * The frontend passes on the visitor's address as `X-Forwarded-For`, and the backend trusts it from private and
   loopback addresses only (`server.forward-headers-strategy=native`), so the rate limit counts per visitor.
 * If a reverse proxy sits in front of the frontend, set `SERVER_FORWARD_HEADERS_STRATEGY=native` for the frontend too
-  (only if the proxy overwrites `X-Forwarded-For`), otherwise every visitor shares the proxy's rate limit.
+  (only if the proxy overwrites `X-Forwarded-For`), otherwise every visitor shares the proxy's rate limit. On the
+  server, `deploy/site-edge.yaml` does this for Caddy, which overwrites the header.
 
 Comments go to the backend's file-based H2 database in `./data/` by default; for PostgreSQL add its JDBC driver to
 `backend/pom.xml` and set `DB_URL` etc.
@@ -352,32 +362,47 @@ docker compose -f compose.yaml -f observability/connect-app.yaml up -d --build  
 Grafana is then at http://localhost:3000; see [observability/README.md](observability/README.md).
 
 All standard `OTEL_*` variables work (e.g. `OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_EXPORTER_OTLP_HEADERS`). The deploy job
-sets `DEPLOYMENT_ENVIRONMENT=production` itself; for `docker compose up` by hand on the server, also put it in `.env`.
-Compose passes these variables to both services. Query parameters of SQL statements are not recorded, so comment texts
-do not end up in the telemetry.
+sets `DEPLOYMENT_ENVIRONMENT` (`production` or `development`) itself, and each site's `.env` on the server names it as
+well. Compose passes these variables to both services.
+
+**Privacy.** The collector removes the visitor's IP address and browser (`client.address`, `user_agent.original` and
+the like) from every span, log record and metric before anything is stored. Query parameters of SQL statements are
+not recorded, so comment texts do not end up in the telemetry either.
 
 ## Continuous integration and deployment
 
-The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request:
+The site runs on one vServer in two environments, **production** (https://www.stefan-hoffmann.de, from `main`) and
+**development** (https://dev.stefan-hoffmann.de, from `develop`, behind a password), next to the observability stack
+(https://grafana.stefan-hoffmann.de) and behind the server's Caddy. The one-time setup of the server and of GitHub
+is in [deploy/README.md](deploy/README.md).
+
+The GitHub Actions workflow `.github/workflows/ci.yml` runs on every push to `main` and `develop`, on pull requests
+and by hand:
 
 1. **Build and test**: `./mvnw verify` with Java 21, both modules.
 2. **Docker images**: built after green tests, one per module from the same `Dockerfile` (`--build-arg
-   MODULE=backend|frontend`, and `VERSION` with the short commit hash for the telemetry); pushes to `main` publish them as `ghcr.io/hoffmannstefan/personal-site-engine-backend`
-   and `…-frontend` (tags `latest` and the commit hash).
-3. **Deploy** (from `main` only, see below): copies `compose.yaml` and `info/` to the server via rsync (`info/` is
-   mirrored, so files deleted in the repository disappear on the server too), pulls the new images and recreates the
-   containers. Containers of services no longer in `compose.yaml` are removed (`--remove-orphans`), such as the single
-   `homepage` container from before the split. `data/` and `.env` on the server are not touched.
+   MODULE=backend|frontend`, and `VERSION` with the short commit hash for the telemetry); pushes publish them as
+   `ghcr.io/hoffmannstefan/personal-site-engine-backend` and `…-frontend`, tagged with the commit (`sha-1a2b3c4`),
+   plus `latest` for `main` and `develop` for `develop`.
+3. **Deploy**: `main` to production, `develop` to development, each into the folder named by the secret
+   `DEPLOY_PATH` of its GitHub environment. It copies `compose.yaml`, `info/` (mirrored, so files deleted in the
+   repository disappear on the server too) and the two extra Compose files, pins the images of this commit
+   (`IMAGE_TAG=sha-…`), recreates the backend (it reads the content at startup) and the frontend if its image
+   changed, and waits until both are healthy. `data/` and `.env` on the server are not touched. Visitors see no
+   errors meanwhile: the frontend waits for the restarting backend, Caddy for the restarting frontend (tested: every
+   request answered with 200, a comment posted during the restart arrived).
 
-Deployment is off by default. Pushes to `main` deploy only while the repository variable `DEPLOY_ENABLED` is `true`
+The observability stack has a workflow of its own, `.github/workflows/observability.yml`: it deploys `observability/`
+to the folder `OBSERVABILITY_PATH` when it changes on `main`.
+
+Deployment is off by default. Pushes deploy only while the repository variable `DEPLOY_ENABLED` is `true`
 (Settings → Secrets and variables → Actions → Variables, or `gh variable set DEPLOY_ENABLED --body true`). A manual
-run (Actions → CI → Run workflow) with "Deploy" ticked deploys regardless of the variable. Changes to `README.md` and
-`TODO.md` alone start no run at all.
+run (Actions → CI or Observability → Run workflow) with "Deploy" ticked deploys regardless of the variable. Changes to
+`README.md` and `TODO.md` alone start no run at all.
 
-The deploy job reads the server access from repository secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`,
-`DEPLOY_SSH_KEY` (a private key used only for deployment) and `DEPLOY_KNOWN_HOSTS` (output of `ssh-keyscan <host>`).
-The server needs Docker with Compose and rsync; if the package on ghcr.io is private, log in there once with
-`docker login ghcr.io`.
+The server access comes from the repository secrets `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` (a private key used
+only for deployment) and `DEPLOY_KNOWN_HOSTS` (output of `ssh-keyscan <host>`). The server needs Docker 25 with
+Compose 2.24 or newer and rsync; if the packages on ghcr.io are private, log in there once with `docker login ghcr.io`.
 
 ## Technical configuration
 
@@ -398,9 +423,20 @@ Environment variables:
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | backend | Comment database |
 | `DEPLOYMENT_ENVIRONMENT`, `SERVICE_VERSION` | both | Environment and version in the telemetry, see [Telemetry](#telemetry) |
 | `OTEL_SDK_DISABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_*` | both | Switch on and configure the OpenTelemetry export |
-| `BACKEND_URL` | frontend | Address of the backend (default `http://localhost:8081`; `http://backend:8081` in Compose) |
+| `BACKEND_URL` | frontend | Address of the backend (default `http://localhost:8081`; `http://site-backend:8081` in Compose, a name only the own project knows) |
+| `BACKEND_RETRY` | frontend | How long a call tries again while the backend cannot be reached (default `20s`) |
 | `THYMELEAF_CACHE=false` | frontend | Live template editing |
 | `PORT` | both | Port to listen on (backend 8081, frontend 8080) |
+
+In `.env` next to `compose.yaml`, read by Compose:
+
+| Variable | Purpose |
+|---|---|
+| `SITE_PORT` | Host port of the frontend (default `8080`; `127.0.0.1:18080` on the server, behind Caddy) |
+| `BACKEND_MEMORY`, `FRONTEND_MEMORY` | Memory limits (default `320m`, `256m`) |
+| `BACKEND_JAVA_OPTIONS`, `FRONTEND_JAVA_OPTIONS` | Java settings, replacing the measured defaults in `compose.yaml` |
+| `IMAGE_TAG` | Image version (default `latest`; the deploy pins `sha-…`) |
+| `COMPOSE_FILE`, `SITE_NAME` | On the server: the extra Compose files and the frontend's name for Caddy, see [deploy/README.md](deploy/README.md) |
 
 ## Project layout
 
@@ -425,7 +461,7 @@ The backend's tests use their own content in `backend/src/test/resources/` (`inf
 **Frontend**, Java packages under `frontend/src/main/java/com/homepage/frontend/`:
 
 * `content/` reads the backend's API: `ContentClient` and the records it returns (`Site`, `PostPage`, `Post`,
-  `Publications`).
+  `Publications`); `RetryWhileBackendStarts` tries a call again while the backend cannot be reached.
 * `web/` page controller; `SiteAttributes` provides `site` to every template and turns a backend that is down into
   a 503 page; `BackendProxy` passes `/api/**` and `/images/**` on to the backend; `FrontendMetrics` counts page
   views and 503 answers.
@@ -439,7 +475,8 @@ Resources under `frontend/src/main/resources/`:
   light/dark, comments, publications); the favicons sit at the top of `static/`.
 
 The frontend's tests replace the backend with a stub (`PagesTest`, `FrontendMetricsTest`) or with a small fake HTTP
-server (`BackendTest`, `TraceTest`), so they run without a backend.
+server (`BackendTest`, `TraceTest`, `RetryTest`, the last one starting only after the request), so they run without
+a backend.
 
 The telemetry tests switch the OpenTelemetry SDK on and read what would be exported from memory: the resource
 attributes (`TelemetryTest`, `TelemetryDefaultsTest`), the backend's and frontend's own metrics (`BackendMetricsTest`,
@@ -448,6 +485,10 @@ attributes (`TelemetryTest`, `TelemetryDefaultsTest`), the backend's and fronten
 **Observability**, `observability/`: a separate Compose project with the OpenTelemetry Collector, Prometheus, Loki,
 Tempo and Grafana, its configuration, the dashboard `grafana/dashboards/personal-site.json` and `connect-app.yaml`,
 which connects the application to it; see [observability/README.md](observability/README.md).
+
+**Deployment**, `deploy/`: what the server needs besides the images: the extra Compose files for Caddy
+(`site-edge.yaml`, `observability-edge.yaml`), the sites for Caddy's Caddyfile, templates of the three `.env` files,
+and the setup guide [deploy/README.md](deploy/README.md).
 
 ## Credits
 

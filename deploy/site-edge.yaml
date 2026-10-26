@@ -1,0 +1,21 @@
+# On the server: lets Caddy reach this site's frontend over the Docker network "edge". Used through COMPOSE_FILE in
+# the site's .env (see production.env.example), next to compose.yaml and observability/connect-app.yaml.
+#
+# Production and development join the same network, so each needs a name of its own there: SITE_NAME from .env
+# (site-production, site-development) makes it site-production-frontend and site-development-frontend, which is
+# what the Caddyfile uses. The service name "frontend" is in the network too, but means both, so nothing uses it.
+services:
+  frontend:
+    environment:
+      # Caddy puts the visitor's address in X-Forwarded-For; the frontend takes it from there, but only from private
+      # addresses such as Caddy's in Docker. So the comment rate limit counts per visitor, not per Caddy.
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+    networks:
+      default:
+      edge:
+        aliases:
+          - ${SITE_NAME:?SITE_NAME must be set in .env, e.g. site-production}-frontend
+
+networks:
+  edge:
+    external: true

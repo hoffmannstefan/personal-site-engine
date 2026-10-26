@@ -235,6 +235,9 @@ The start page (`/`) must show:
 
 - The frontend reads the backend at `frontend.backend-url` (env `BACKEND_URL`, default `http://localhost:8081`).
 - Connect timeout 2 s, read timeout 10 s.
+- While no connection to the backend can be made (it restarts, or is not up yet), a call is tried again every 0.5 s
+  for up to `frontend.backend-retry` (env `BACKEND_RETRY`, default 20 s). Only a failed connection is retried: the
+  request never reached the backend, so this is safe for POST too, and a backend that answers is never asked twice.
 - The frontend caches nothing; every page makes two backend calls (site and page content).
 - `/api/**` (all methods) and `/images/**` (GET) are forwarded unchanged, including the query string and the
   backend's status code.
@@ -246,9 +249,13 @@ The start page (`/`) must show:
 ### 6.9 Failure behaviour
 
 - A missing or broken content file never stops the backend from starting (see 6.1, 6.3, 6.5).
-- If the backend is unreachable or answers with a server error, every page returns 503 with a "Temporarily
-  unavailable" page, and forwarded API calls return 503 as an RFC 9457 problem detail.
+- While the backend restarts, pages and forwarded API calls wait for it (6.8) instead of failing.
+- If the backend stays unreachable beyond that, or answers with a server error, every page returns 503 with a
+  "Temporarily unavailable" page, and forwarded API calls return 503 as an RFC 9457 problem detail.
 - The frontend recovers by itself as soon as the backend is reachable again.
+- A deploy causes no error pages: measured with requests five times a second through Caddy while backend and
+  frontend were recreated, every request was answered with 200 (the longest after 7 s), and a comment posted during
+  the backend's restart arrived exactly once.
 - Unknown pages return the 404 page.
 
 ## 7. UX layout
@@ -323,18 +330,45 @@ share no code.
 ### 10.4 Deployment
 
 - One `Dockerfile` builds either image (`--build-arg MODULE=backend|frontend`); the build stage runs the tests.
-- `compose.yaml` runs both: only the frontend publishes a port (8080); the backend mounts `./info` read-only and
-  `./data` read-write.
-- CI (`.github/workflows/ci.yml`): tests on every push to `main`, every pull request and manual runs; images
-  `ghcr.io/hoffmannstefan/personal-site-engine-backend` and `…-frontend`, published on pushes to `main` and manual
-  runs; deployment from `main` only, when `DEPLOY_ENABLED` is `true` or a manual run asks for it.
-- Deployment copies `compose.yaml` and `info/` (mirrored) via rsync, pulls the images and recreates the containers,
-  removing orphans. `data/` and `.env` on the server are never touched.
+- `compose.yaml` runs both: only the frontend publishes a port (`SITE_PORT`, default 8080); the backend mounts
+  `./info` read-only and `./data` read-write. Each service has a memory limit and Java settings measured to stay
+  inside it (backend 320 MB limit, about 240 MB used; frontend 256 MB, about 150 MB), and a health check (its port is
+  open). The frontend starts only once the backend is healthy.
+- One vServer (2 GB) runs everything behind the Caddy that was already there, which terminates TLS:
 
-### 10.5 Scaling
+| Address | Compose project | Branch |
+| --- | --- | --- |
+| `www.stefan-hoffmann.de` | the site, production | `main` |
+| `dev.stefan-hoffmann.de` (password, `noindex`) | the site, development | `develop` |
+| `grafana.stefan-hoffmann.de` (Grafana login) | `observability` | `main`, changes to `observability/` |
+
+- Caddy reaches the frontends and Grafana over the Docker network `edge`, under names unique per environment
+  (`site-production-frontend`, `site-development-frontend`, `observability-grafana`, from `deploy/site-edge.yaml`
+  and `SITE_NAME`); the sites reach the collector over the network `observability`. Inside each site, the frontend
+  reaches its backend as `site-backend`, a name only its own project's network knows. Service names (`backend`,
+  `frontend`) are never used across projects, since every connected project has them in the shared networks.
+- CI (`.github/workflows/ci.yml`): tests on every push to `main` and `develop`, every pull request and manual runs;
+  images `ghcr.io/hoffmannstefan/personal-site-engine-backend` and `…-frontend`, tagged `sha-<commit>` (plus
+  `latest`, `develop`); deployment of `main` to production and of `develop` to development, into the folder of the
+  GitHub environment's secret `DEPLOY_PATH`, when `DEPLOY_ENABLED` is `true` or a manual run asks for it.
+- A deploy copies `compose.yaml`, `info/` (mirrored) and the extra Compose files via rsync, pins the images of the
+  commit (`IMAGE_TAG`), recreates the backend (content is read at startup) and the frontend if its image changed,
+  and waits until both are healthy. `data/` and `.env` on the server are never touched; each folder's `.env` names
+  the Compose files (`COMPOSE_FILE`), `SITE_NAME` and its own admin token.
+- The observability stack is deployed by `.github/workflows/observability.yml` into `OBSERVABILITY_PATH`.
+- The development site sleeps when not needed: a nightly job on the server stops it, the next deploy starts it.
+- The one-time setup of the server (swap, network, Caddy, folders, `.env` files) and of GitHub is in
+  `deploy/README.md`.
+
+### 10.5 Scaling and memory
 
 v1.0 assumes one instance of each service. The frontend is stateless and could run several instances. The backend
 cannot yet: the rate limiter is in memory and H2 is a local file.
+
+Measured on a copy of the server setup under load: production and development about 390 MB each, the observability
+stack about 580 MB, together with system, Docker and Caddy below 1.7 GB, which leaves room for the Nextcloud on the
+same server while the development site sleeps. 2 GB of swap catch peaks while it runs. A container that exceeds its
+limit is restarted alone.
 
 ## 11. Data model
 
@@ -396,8 +430,15 @@ The backend serves these endpoints; the frontend forwards them unchanged, so the
 - The backend must not be reachable from the internet; in Compose it has no published port.
 - The backend trusts `X-Forwarded-For` only from private and loopback addresses
   (`server.forward-headers-strategy=native`).
-- The frontend replaces any incoming `X-Forwarded-For`. Behind a reverse proxy, the frontend must be configured to
-  trust it (`SERVER_FORWARD_HEADERS_STRATEGY=native`) only if the proxy overwrites the header.
+- The frontend replaces any incoming `X-Forwarded-For` before passing it to the backend. Behind a reverse proxy, the
+  frontend trusts the header (`SERVER_FORWARD_HEADERS_STRATEGY=native`) only if the proxy overwrites it; Caddy does,
+  and `deploy/site-edge.yaml` sets this on the server.
+- On the server, the sites and Grafana have no port reachable from outside; only Caddy does (80, 443). The sites'
+  ports are bound to `127.0.0.1`.
+- The development site is behind a password (Caddy `basic_auth`) and sends `X-Robots-Tag: noindex, nofollow`; Grafana
+  requires a login (anonymous viewing off on the server).
+- The telemetry contains no visitor data: the collector removes IP addresses, ports, the browser (user agent) and any
+  recorded HTTP headers from every span, log record and metric before anything is stored.
 - Comments are never interpreted as HTML in the browser.
 - Posts, `home.text` and raw HTML in them are trusted, owner-written content and are not sanitised.
 - The admin token must be long and random (`openssl rand -hex 32`), kept in `.env` on the server (ignored by Git) and
@@ -421,7 +462,7 @@ These are proposed targets; none has been measured yet.
 | 503 page while the backend is down | within 5 s (two connect timeouts) |
 | Backend startup with current content | under 15 s |
 | Comments lost on container recreation | none (database on the `./data` volume) |
-| Availability | best effort; brief 503s during deploys are accepted |
+| Availability | best effort; no error pages during deploys (measured, see 6.9) |
 
 ## 15. Observability
 
@@ -446,12 +487,13 @@ These are proposed targets; none has been measured yet.
 | Attribute | Source | Values |
 | --- | --- | --- |
 | `service.name` | `spring.application.name` | `homepage-frontend`, `homepage-backend` |
-| `deployment.environment.name` | env `DEPLOYMENT_ENVIRONMENT` | `local` (default), `production` (set by the deploy job) |
+| `deployment.environment.name` | env `DEPLOYMENT_ENVIRONMENT` | `local` (default), `production`, `development` (set by the deploy job) |
 | `service.version` | env `SERVICE_VERSION`, set in the image from the build argument `VERSION` | short commit hash (CI images), `dev` (local images), project version (`./mvnw`) |
 
 - Export is off by default (`otel.sdk.disabled=true`) and is switched on with `OTEL_SDK_DISABLED=false` and
-  `OTEL_EXPORTER_OTLP_ENDPOINT`; no receiver is part of the deployment yet.
-- SQL statements are recorded without their parameters, so comment texts never reach the telemetry.
+  `OTEL_EXPORTER_OTLP_ENDPOINT`, as `observability/connect-app.yaml` does.
+- SQL statements are recorded without their parameters, so comment texts never reach the telemetry; visitor data is
+  removed by the collector (13).
 
 ### 15.3 Application metrics
 
@@ -474,17 +516,21 @@ These are proposed targets; none has been measured yet.
 the same two as stream labels), Tempo (traces) and Grafana with the provisioned dashboard "Personal Site", whose
 panels are filtered by the variables Environment and Version. The application joins the stack's network through the
 extra Compose file `observability/connect-app.yaml`. Only Grafana publishes a port, on `127.0.0.1:3000`. Data is kept
-for 30 days.
+for 30 days, and every service has a memory limit.
 
-Not yet available: the stack on the production server (the deploy job copies neither `observability/` nor the extra
-Compose file), health endpoints, alerting.
+`COLLECTOR_KEEP` chooses how much is kept: `all` (local) or `some` (the server): every trace with an error or slower
+than 500 ms and 10 % of the others, and logs of level WARN and above. Measured, about 13 % of the traces are kept;
+metrics and the dashboard stay complete.
+
+Not yet available: alerting.
 
 Logs and telemetry must not contain the admin token or comment bodies.
 
 ## 16. Acceptance criteria
 
-v1.0 is accepted when all of the following are true. Items 1–9 are covered by automated tests (`./mvnw verify`,
-72 tests); items 10–12 were checked manually with Docker Compose.
+v1.0 is accepted when all of the following are true. Items 1–9 and 13 are covered by automated tests
+(`./mvnw verify`, 85 tests); items 10–12 and 14–16 were checked manually with Docker Compose and a local Caddy on a
+copy of the server setup.
 
 1. The start page, blog list, posts and publications render from the backend's content, with and without a trailing
    slash (`PagesTest`, `ContentApiTest`).
@@ -503,6 +549,12 @@ v1.0 is accepted when all of the following are true. Items 1–9 are covered by 
 10. In Docker Compose, only the frontend has a port, and comments posted through it are stored by the backend.
 11. Two visitors with different addresses have separate rate limits through the frontend.
 12. After the backend is stopped and started again, the site recovers without restarting the frontend.
+13. While the backend cannot be reached, calls wait up to `frontend.backend-retry`, a comment arrives exactly once,
+    and a backend that answered is never asked twice (`RetryTest`, `RetryWhileBackendStartsTest`).
+14. A deploy (backend and frontend recreated) causes no error pages and loses no comment.
+15. Production and development are isolated: a comment in one never appears in the other; a stopped development
+    site leaves production untouched and is answered by Caddy with a short notice.
+16. No visitor IP address or user agent reaches Tempo, Loki or Prometheus.
 
 ## 17. Delivery phases
 
@@ -522,31 +574,38 @@ v1.0 is accepted when all of the following are true. Items 1–9 are covered by 
 - Content API, proxy for `/api/**` and `/images/**`, 503 handling
 - Two images, Compose with a private backend, deploy with `--remove-orphans`
 
-### Phase 4 — Production rollout of the split (next)
+### Phase 4 — Telemetry and observability (done, `0b66b15` and after)
 
-- Check that the server can pull the two new GHCR packages (visibility or `docker login`)
-- Merge into `main` and deploy; check that the old `homepage` container is removed and comments are kept
-- Health checks so the frontend starts after the backend is ready (avoids brief 503s on deploy)
+- OpenTelemetry in both services, one trace per page request, own metrics, the observability stack with the
+  dashboard, visitor data removed in the collector
+
+### Phase 5 — Production, development and dashboards on the vServer (prepared, next)
+
+- Done in the repository: memory limits and lean Java settings, health checks, retries while the backend restarts,
+  the extra Compose files and Caddy sites, the deploy of `main` and `develop`, the deploy of the stack
+- On the server and in GitHub, following `deploy/README.md`: swap, the network `edge`, Caddy, folders and `.env`
+  files, environments and secrets, the switch of production, the nightly sleep of development
 - Delete the old `personal-site-engine` image on GHCR
 
 ## 18. Decisions still required
 1. Whether the public site should expose the content API (`/api/site`, `/api/posts`, `/api/publications`) or only the
    comment endpoints.
 2. Whether the frontend should cache backend responses, and how a content change would then reach it.
-3. How TLS is terminated in front of the frontend on the server, and whether that proxy overwrites
-   `X-Forwarded-For`.
-4. Whether the H2 database stays, or comments move to PostgreSQL before the site grows.
-5. Whether comments need moderation before they appear, or notifications to the owner.
-6. Whether the API should be versioned (`/api/v1/…`) before anyone else depends on it.
-7. What to do with sample content that shows unsupported features (`info/posts/mermaid-support.md`) and with the
+3. Whether the H2 database stays, or comments move to PostgreSQL before the site grows.
+4. Whether comments need moderation before they appear, or notifications to the owner.
+5. Whether the API should be versioned (`/api/v1/…`) before anyone else depends on it.
+6. What to do with sample content that shows unsupported features (`info/posts/mermaid-support.md`) and with the
    "under construction" note in `info/site.yaml`.
-8. Which of the non-goals (RSS feed, syntax highlighting, archive pages) come next.
-9. Whether the observability stack runs on the production server next to the site (and how Grafana is reached
-   there), or the production telemetry goes to a hosted service.
+7. Which of the non-goals (RSS feed, syntax highlighting, archive pages) come next.
+8. Whether Grafana should send alerts (e.g. when pages fail because the backend is down, or a post file is broken),
+   and to where.
+
+Decided: TLS is terminated by the Caddy on the server, which overwrites `X-Forwarded-For` (formerly 3). The
+observability stack runs on the server next to the sites (formerly 9).
 
 ## 19. Recommended next step
 
-Complete Phase 4: open a pull request for `split-backend-frontend` so CI runs on it, make sure the server can pull
-both images, then merge with `DEPLOY_ENABLED` switched off and deploy manually while watching the logs. In parallel,
-decide 18.1 and 18.3, since both affect what the public site exposes and whether the comment rate limit works behind
-the production proxy.
+Complete Phase 5 on the server and in GitHub, step by step as in `deploy/README.md`: first swap, the network `edge`
+and Caddy, then the observability stack, then the switch of production (deploy and Caddy reload right after each
+other), then the development site. Before that, measure the Nextcloud's memory on the server (`free -h`, `ps`), since
+the memory budget in 10.5 estimates it.

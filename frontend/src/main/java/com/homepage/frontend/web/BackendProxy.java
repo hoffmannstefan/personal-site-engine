@@ -60,7 +60,7 @@ class BackendProxy {
 
     @ExceptionHandler(RestClientException.class)
     ProblemDetail backendUnavailable(RestClientException e) {
-        log.warn("Cannot pass the request on to the backend: {}", e.getMessage());
+        log.warn("Cannot pass the request on to the backend: {}", BackendFailure.describe(e));
         metrics.backendUnavailable("proxy");
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
                 "The site is temporarily unavailable. Please try again in a moment.");

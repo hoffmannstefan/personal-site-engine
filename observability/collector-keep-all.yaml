@@ -1,0 +1,3 @@
+# Keeps every trace and log record, as the base configuration otel-collector.yaml does: for local use.
+# Chosen with COLLECTOR_KEEP=all (the default); collector-keep-some.yaml is the choice for a small server.
+{}

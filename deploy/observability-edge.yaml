@@ -1,0 +1,13 @@
+# On the server: lets Caddy reach Grafana over the Docker network "edge" as observability-grafana. The deploy copies
+# this file next to observability/compose.yaml as edge.yaml; COMPOSE_FILE in that folder's .env uses it (see
+# observability.env.example).
+services:
+  grafana:
+    networks:
+      default:
+      edge:
+        aliases: [observability-grafana]
+
+networks:
+  edge:
+    external: true

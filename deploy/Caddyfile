@@ -1,0 +1,41 @@
+# Sites of Personal Site Engine, to add to the Caddyfile of the Caddy that already runs on the server. Caddy must
+# be in the Docker network "edge" (deploy/README.md, step 2); it gets the HTTPS certificates by itself.
+
+# A site: compressed, and while the frontend restarts (a deploy, a few seconds) Caddy keeps trying for the given time
+# instead of answering 502. Arguments: the frontend, how long to keep trying.
+(personal-site) {
+	encode zstd gzip
+	reverse_proxy {args[0]} {
+		lb_try_duration {args[1]}
+		lb_try_interval 500ms
+	}
+}
+
+www.stefan-hoffmann.de {
+	import personal-site site-production-frontend:8080 30s
+}
+
+# Only for you: a password, and search engines are asked to stay away. The development version sleeps when it is not
+# needed, so Caddy gives up quickly and says so.
+dev.stefan-hoffmann.de {
+	basic_auth {
+		# Replace with your user name and the hash from: docker exec <caddy container> caddy hash-password
+		stefan $2a$14$REPLACE.WITH.THE.OUTPUT.OF.caddy.hash-password.xxxxxxxxxxxxxxxxxxxxxxxx
+	}
+	header X-Robots-Tag "noindex, nofollow"
+	import personal-site site-development-frontend:8080 3s
+	handle_errors 502 503 504 {
+		respond "The development version is not running right now. Start it on the server with: docker compose start" 503
+	}
+}
+
+# Grafana asks for its own login; anonymous viewing is switched off on the server (observability.env.example).
+grafana.stefan-hoffmann.de {
+	encode zstd gzip
+	reverse_proxy observability-grafana:3000
+}
+
+# stefan-hoffmann.de without www still points to another server in DNS (46.38.243.234). Once it points here:
+# stefan-hoffmann.de {
+# 	redir https://www.stefan-hoffmann.de{uri} permanent
+# }

@@ -1,0 +1,36 @@
+# For a small server: keeps part of the traces and logs, laid over otel-collector.yaml (COLLECTOR_KEEP=some).
+# Metrics and so the dashboard stay complete; the applications compute them before anything is left out here.
+# Measured with production and development under load: about 13 % of the traces and only WARN and above of the logs
+# are kept, and Tempo and Loki stay below 150 MB.
+processors:
+  # Decides per trace once it is complete: every trace with an error, every one slower than 500 ms, and 10 % of the
+  # others.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 5000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 500
+      - name: some-of-the-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  # Only warnings and errors; INFO and below are dropped.
+  filter/warnings:
+    error_mode: ignore
+    logs:
+      log_record:
+        - severity_number < SEVERITY_NUMBER_WARN
+
+service:
+  pipelines:
+    traces:
+      processors: [memory_limiter, attributes/privacy, tail_sampling, batch]
+    logs:
+      processors: [memory_limiter, attributes/privacy, filter/warnings, batch]

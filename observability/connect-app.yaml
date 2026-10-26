@@ -6,6 +6,10 @@
 # The application stays a Compose project of its own; it only joins the network "observability" and switches on
 # its OpenTelemetry export to the collector there. On a server, COMPOSE_FILE=compose.yaml:observability/connect-app.yaml
 # in .env makes plain "docker compose" commands use it too.
+#
+# Every connected project's services are known in the shared network under their service names (backend, frontend),
+# so nothing may rely on those names across projects: the frontend reaches its own backend as site-backend, a name
+# that only exists in the project's own network (see compose.yaml).
 services:
   backend:
     environment: &telemetry
@@ -13,10 +17,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       # Metrics every 15 s instead of every minute, so the dashboard follows closely.
       OTEL_METRIC_EXPORT_INTERVAL: "15000"
-    networks: [default, observability]
+    networks:
+      default:
+      observability:
   frontend:
     environment: *telemetry
-    networks: [default, observability]
+    networks:
+      default:
+      observability:
 
 networks:
   observability:

@@ -1,3 +1,11 @@
+# The site: backend and frontend. Values in ${…} come from .env next to this file (see deploy/README.md for the
+# server); without one, the defaults below run the site locally on http://localhost:8080.
+#
+# Memory: each service has a fixed limit, and Java is set up to stay well inside it (measured under load: backend
+# about 240 MB, frontend about 150 MB). The C1 compiler alone (TieredStopAtLevel=1) needs less memory and starts
+# faster; for a personal site the lower peak throughput does not matter. BACKEND_JAVA_OPTIONS and
+# FRONTEND_JAVA_OPTIONS replace the settings, BACKEND_MEMORY and FRONTEND_MEMORY the limits.
+
 services:
   # Content from info/ and the comments database; reachable only by the frontend, inside the Compose network.
   backend:
@@ -6,12 +14,15 @@ services:
       args:
         MODULE: backend
         VERSION: ${VERSION:-dev}
-    image: ghcr.io/hoffmannstefan/personal-site-engine-backend:latest
+    # IMAGE_TAG pins a build (sha-1a2b3c4, as published by CI); latest is the newest build of main.
+    image: ghcr.io/hoffmannstefan/personal-site-engine-backend:${IMAGE_TAG:-latest}
     # Same user as the owner of ./data on the host, so the database files stay writable for both.
     user: "1000:1000"
+    mem_limit: ${BACKEND_MEMORY:-320m}
     environment:
+      JAVA_TOOL_OPTIONS: ${BACKEND_JAVA_OPTIONS:--Xmx96m -XX:MaxMetaspaceSize=144m -XX:ReservedCodeCacheSize=32m -XX:TieredStopAtLevel=1 -XX:CICompilerCount=1 -Xss256k -XX:+UseSerialGC -XX:MaxDirectMemorySize=16m}
       COMMENTS_ADMIN_TOKEN: ${COMMENTS_ADMIN_TOKEN:-}
-      # Reported in the telemetry of both services as deployment.environment.name; the deploy job sets production.
+      # Reported in the telemetry of both services as deployment.environment.name.
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       # OpenTelemetry export is off until a receiver exists, e.g. OTEL_SDK_DISABLED=false and
       # OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 in .env.
@@ -20,6 +31,20 @@ services:
     volumes:
       - ./data:/app/data        # comments database (H2)
       - ./info:/app/info:ro     # site.yaml, images/, own posts (posts/), publications.bib
+    networks:
+      default:
+        # The name the frontend uses. It exists only in this project's own network: when the services also join a
+        # shared network (observability/connect-app.yaml), "backend" there means every project's backend.
+        aliases: [site-backend]
+    # Healthy once the port is open: Spring Boot opens it only after the content and the database are loaded.
+    # A plain port check, so health checks do not show up as requests in the telemetry.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 180s
+      start_interval: 2s
     restart: unless-stopped
 
   # The website: renders the pages from the backend and passes /api/ and /images/ on to it.
@@ -29,16 +54,27 @@ services:
       args:
         MODULE: frontend
         VERSION: ${VERSION:-dev}
-    image: ghcr.io/hoffmannstefan/personal-site-engine-frontend:latest
+    image: ghcr.io/hoffmannstefan/personal-site-engine-frontend:${IMAGE_TAG:-latest}
     ports:
-      - "8080:8080"
+      - "${SITE_PORT:-8080}:8080"
     user: "1000:1000"
+    mem_limit: ${FRONTEND_MEMORY:-256m}
     environment:
-      BACKEND_URL: http://backend:8081
+      JAVA_TOOL_OPTIONS: ${FRONTEND_JAVA_OPTIONS:--Xmx64m -XX:MaxMetaspaceSize=112m -XX:ReservedCodeCacheSize=32m -XX:TieredStopAtLevel=1 -XX:CICompilerCount=1 -Xss256k -XX:+UseSerialGC -XX:MaxDirectMemorySize=16m}
+      BACKEND_URL: http://site-backend:8081
       # Telemetry as for the backend; with both switched on, one trace covers a page request in both services.
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 120s
+      start_interval: 2s
+    # Starts only when the backend is ready, so a fresh start never answers with 503.
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped

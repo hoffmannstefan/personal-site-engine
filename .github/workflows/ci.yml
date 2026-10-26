@@ -1,12 +1,13 @@
-# Builds and tests pushes to main and pull requests. Pushes to main also publish the
-# Docker images of the backend and the frontend to the GitHub Container Registry
-# (ghcr.io) and deploy them, together with compose.yaml and the content in info/,
-# to the server.
+# Builds and tests pushes to main and develop and pull requests. Pushes to main and
+# develop also publish the Docker images of the backend and the frontend to the GitHub
+# Container Registry (ghcr.io) and deploy them, together with compose.yaml and the
+# content in info/, to the server: main to production, develop to development. The
+# observability stack has a workflow of its own (observability.yml).
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     # Changes to these files alone neither test nor deploy anything. Not all *.md files:
     # the posts in info/posts/ are Markdown too and must still be deployed.
     paths-ignore:
@@ -16,15 +17,15 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: Deploy to the server (also when DEPLOY_ENABLED is not true)
+        description: Deploy to the server (main to production, develop to development; also when DEPLOY_ENABLED is not true)
         type: boolean
         default: false
 
-# A newer push to a branch cancels the run that is still going. Runs on main are
-# never cancelled, so a deployment cannot be interrupted halfway.
+# A newer push to a branch cancels the run that is still going. Runs on main and
+# develop are never cancelled, so a deployment cannot be interrupted halfway.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
 permissions:
   contents: read
@@ -85,8 +86,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}-${{ matrix.module }}
+          # sha-1a2b3c4 is what the deploy pins; latest follows main, develop the branch develop.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=sha
 
       # Pull requests only check that the image builds; nothing is pushed.
@@ -106,30 +109,33 @@ jobs:
   # Server access comes from repository secrets (Settings → Secrets and variables → Actions):
   #   DEPLOY_HOST          address of the server
   #   DEPLOY_USER          SSH user, needs access to Docker
-  #   DEPLOY_PATH          folder on the server with compose.yaml, info/ and data/
   #   DEPLOY_SSH_KEY       private key whose public key is in the user's authorized_keys
   #   DEPLOY_KNOWN_HOSTS   output of `ssh-keyscan <host>`, so the server's identity is checked
+  # and the folder of each site from a secret of its GitHub environment (Settings → Environments):
+  #   DEPLOY_PATH          in "production" and in "development": the folder with compose.yaml, info/,
+  #                        data/ and the site's .env (deploy/production.env.example)
   #
-  # When it runs, only from main:
-  #   push                 if the repository variable DEPLOY_ENABLED is 'true'
+  # When it runs:
+  #   push to main/develop if the repository variable DEPLOY_ENABLED is 'true'
   #                        (Settings → Secrets and variables → Actions → Variables)
-  #   Run workflow         if "Deploy" is ticked, whatever DEPLOY_ENABLED says
-  # Otherwise the job is skipped and the run stays green.
+  #   Run workflow         on main or develop, if "Deploy" is ticked, whatever DEPLOY_ENABLED says
+  # Otherwise the job is skipped and the run stays green. A protection rule on the environment
+  # "production" (required reviewers) makes every production deploy wait for your approval.
   deploy:
-    name: Deploy
+    name: Deploy (${{ github.ref_name == 'main' && 'production' || 'development' }})
     needs: image
     if: >-
-      github.ref == 'refs/heads/main' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') &&
       ((github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true') ||
        (github.event_name == 'workflow_dispatch' && inputs.deploy))
     runs-on: ubuntu-latest
     environment:
-      name: production
-      url: https://www.stefan-hoffmann.de
+      name: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+      url: ${{ github.ref_name == 'main' && 'https://www.stefan-hoffmann.de' || 'https://dev.stefan-hoffmann.de' }}
     env:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
       # Reported in the telemetry of both services as deployment.environment.name.
-      DEPLOYMENT_ENVIRONMENT: production
+      DEPLOYMENT_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'development' }}
     steps:
       # Fails instead of deploying to a half-configured target, e.g. rsync to / with an empty DEPLOY_PATH.
       - name: Check secrets
@@ -151,6 +157,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # The images built above for this commit, not whatever latest means by then: what
+      # was tested on development is exactly what goes to production.
+      - name: Image tag
+        run: echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
       - name: Set up SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -171,23 +182,37 @@ jobs:
             BatchMode yes
           EOF
 
+      # The site's .env names the Compose files and SITE_NAME; without it the deploy would
+      # start a site Caddy cannot reach. It is set up once by hand (deploy/README.md).
+      - name: Check the server
+        run: |
+          ssh server "test -f '$DEPLOY_PATH/.env'" || {
+            echo "::error::$DEPLOY_PATH/.env is missing on the server, see deploy/README.md"; exit 1; }
+          ssh server "mkdir -p '$DEPLOY_PATH/observability' '$DEPLOY_PATH/deploy'"
+
       # info/ is mirrored: files deleted in the repository are deleted on the server too.
-      # data/ (comments database) and .env (admin token) on the server are left alone.
-      - name: Copy compose.yaml and info/
+      # data/ (comments database) and .env on the server are left alone.
+      - name: Copy compose files and info/
         run: |
           rsync -rltvz --chmod=D755,F644 compose.yaml "server:$DEPLOY_PATH/compose.yaml"
+          rsync -rltvz --chmod=D755,F644 observability/connect-app.yaml "server:$DEPLOY_PATH/observability/connect-app.yaml"
+          rsync -rltvz --chmod=D755,F644 deploy/site-edge.yaml "server:$DEPLOY_PATH/deploy/site-edge.yaml"
           rsync -rltvz --delete --chmod=D755,F644 info/ "server:$DEPLOY_PATH/info/"
 
-      # Recreated even when only content changed, because posts and settings are read at startup.
-      # --remove-orphans stops containers of services no longer in compose.yaml (the single
-      # "homepage" container from before the split into backend and frontend).
+      # The backend is recreated every time, because it reads posts and settings only at
+      # startup; the frontend only when its image changed. While the backend restarts, the
+      # frontend retries its calls (frontend.backend-retry), and while the frontend restarts,
+      # Caddy retries (lb_try_duration), so visitors see a short wait instead of an error.
+      # --wait returns once the services are healthy, so a site that does not start fails
+      # the deploy. --remove-orphans stops containers of services no longer in compose.yaml.
       - name: Pull the new images and restart
         run: |
           ssh server "set -e
             cd '$DEPLOY_PATH'
-            export DEPLOYMENT_ENVIRONMENT='$DEPLOYMENT_ENVIRONMENT'
+            export DEPLOYMENT_ENVIRONMENT='$DEPLOYMENT_ENVIRONMENT' IMAGE_TAG='$IMAGE_TAG'
             docker compose pull
-            docker compose up -d --no-build --force-recreate --remove-orphans
+            docker compose up -d --no-build --remove-orphans --no-deps --force-recreate --wait --wait-timeout 300 backend
+            docker compose up -d --no-build --remove-orphans --wait --wait-timeout 300
             docker image prune -f"
 
       - name: Remove the SSH key

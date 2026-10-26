@@ -1,0 +1,108 @@
+# Deploys the observability stack (observability/) to the server when it changes on main.
+# Separate from the site's workflow (ci.yml): the stack serves production and development
+# alike and changes rarely.
+name: Observability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - observability/**
+      - deploy/observability-edge.yaml
+      - .github/workflows/observability.yml
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy the observability stack (also when DEPLOY_ENABLED is not true)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The same server access as ci.yml (repository secrets DEPLOY_HOST, DEPLOY_USER,
+  # DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS), plus the repository secret
+  #   OBSERVABILITY_PATH   folder on the server for the stack, with its .env
+  #                        (deploy/observability.env.example)
+  # Runs on pushes while DEPLOY_ENABLED is 'true', or by hand with "Deploy" ticked.
+  deploy:
+    name: Deploy the observability stack
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true') ||
+       (github.event_name == 'workflow_dispatch' && inputs.deploy))
+    runs-on: ubuntu-latest
+    env:
+      OBSERVABILITY_PATH: ${{ secrets.OBSERVABILITY_PATH }}
+    steps:
+      - name: Check secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          OBSERVABILITY_PATH: ${{ secrets.OBSERVABILITY_PATH }}
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS OBSERVABILITY_PATH; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Deployment is switched on, but these secrets are missing:$missing"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host server
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+          EOF
+
+      - name: Check the server
+        run: |
+          ssh server "test -f '$OBSERVABILITY_PATH/.env'" || {
+            echo "::error::$OBSERVABILITY_PATH/.env is missing on the server, see deploy/README.md"; exit 1; }
+
+      # The folder is mirrored, except for .env; the stored telemetry is in Docker volumes,
+      # not in the folder, and stays.
+      - name: Copy the stack
+        run: |
+          rsync -rltvz --delete --exclude=.env --exclude=edge.yaml --chmod=D755,F644 observability/ "server:$OBSERVABILITY_PATH/"
+          rsync -rltvz --chmod=D755,F644 deploy/observability-edge.yaml "server:$OBSERVABILITY_PATH/edge.yaml"
+
+      # Restarted, because the services read their configuration files only at startup
+      # (Grafana picks up dashboard changes by itself). Telemetry sent meanwhile is retried
+      # by the applications.
+      - name: Start the stack with the new configuration
+        run: |
+          ssh server "set -e
+            cd '$OBSERVABILITY_PATH'
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker compose restart otel-collector prometheus loki tempo
+            docker image prune -f"
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

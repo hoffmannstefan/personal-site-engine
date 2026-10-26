@@ -6,29 +6,44 @@
 # The application sends traces, metrics and logs over OTLP to the collector, which passes them on to Tempo,
 # Prometheus and Loki. Grafana shows all three, with the dashboard "Personal Site" (http://localhost:3000).
 # Only Grafana has a port on the host; the app reaches the collector through the network "observability".
+#
+# Values in ${…} come from observability/.env (on the server see deploy/README.md). Every service has a memory limit
+# (measured under load on a 2 GB server setup: about 580 MB for all five); the Go services get GOMEMLIMIT a bit below
+# it, so their garbage collector works harder before the limit is reached.
 name: observability
 
 services:
-  # Receives OTLP from the app and passes each signal on to where it is stored.
+  # Receives OTLP from the app, removes visitor data and passes each signal on to where it is stored. The contrib
+  # build, because the attributes processor that removes the visitor data is not in the core build.
+  # COLLECTOR_KEEP: all (every trace and log record) or some (errors, slow and 10 % of the traces; WARN and above of
+  # the logs), see collector-keep-some.yaml.
   otel-collector:
-    image: otel/opentelemetry-collector:0.162.0
-    command: ["--config=/etc/otelcol/config.yaml"]
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command:
+      - --config=/etc/otelcol/config.yaml
+      - --config=/etc/otelcol/keep.yaml
+    mem_limit: ${COLLECTOR_MEMORY:-128m}
+    environment:
+      GOMEMLIMIT: ${COLLECTOR_GOMEMLIMIT:-100MiB}
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - ./collector-keep-${COLLECTOR_KEEP:-all}.yaml:/etc/otelcol/keep.yaml:ro
     depends_on:
       - prometheus
       - loki
       - tempo
     restart: unless-stopped
 
-  # Metrics, received from the collector over OTLP; environment and version become labels.
+  # Metrics, received from the collector over OTLP; environment and version become labels. Prometheus sets its
+  # GOMEMLIMIT from the memory limit by itself.
   prometheus:
     image: prom/prometheus:v3.15.0
     command:
       - --config.file=/etc/prometheus/prometheus.yaml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.time=${METRICS_RETENTION:-30d}
       - --web.enable-otlp-receiver
+    mem_limit: ${PROMETHEUS_MEMORY:-192m}
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - prometheus-data:/prometheus
@@ -38,6 +53,9 @@ services:
   loki:
     image: grafana/loki:3.7.8
     command: ["-config.file=/etc/loki/config.yaml"]
+    mem_limit: ${LOKI_MEMORY:-192m}
+    environment:
+      GOMEMLIMIT: ${LOKI_GOMEMLIMIT:-160MiB}
     volumes:
       - ./loki.yaml:/etc/loki/config.yaml:ro
       - loki-data:/loki
@@ -47,6 +65,9 @@ services:
   tempo:
     image: grafana/tempo:2.10.8
     command: ["-config.file=/etc/tempo/config.yaml"]
+    mem_limit: ${TEMPO_MEMORY:-192m}
+    environment:
+      GOMEMLIMIT: ${TEMPO_GOMEMLIMIT:-160MiB}
     volumes:
       - ./tempo.yaml:/etc/tempo/config.yaml:ro
       - tempo-data:/var/tempo
@@ -55,13 +76,20 @@ services:
   grafana:
     image: grafana/grafana:13.2.3
     ports:
-      # Only on this machine by default; set GRAFANA_ADDRESS=0.0.0.0 to open it to the network.
+      # Only on this machine by default; set GRAFANA_ADDRESS=0.0.0.0 to open it to the network. On the server,
+      # Caddy reaches Grafana over the network edge instead (deploy/observability-edge.yaml).
       - "${GRAFANA_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    # Measured up to 256 MB under load; the limit leaves some room.
+    mem_limit: ${GRAFANA_MEMORY:-288m}
     environment:
+      GOMEMLIMIT: ${GRAFANA_GOMEMLIMIT:-230MiB}
+      # The admin password is only taken on Grafana's very first start (empty volume); change it later in Grafana.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      # Dashboards can be viewed without logging in; changing them needs the admin login.
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      # Dashboards can be viewed without logging in, unless switched off (on a server reachable from the internet).
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-true}
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # The address Grafana is reached at, for its links and redirects.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/personal-site.json
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"

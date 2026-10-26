@@ -7,15 +7,7 @@ expects to exist in the code, so it can be read on its own.
 Conventions for every task: Spring Boot 3.5, Java 21, Maven wrapper; `./mvnw verify` stays green; new behaviour comes
 with tests.
 
-Suggested order: 37, 36, 33, 35, 34, 38.
-
-## 33. Start the frontend after the backend is ready
-Goal: Deploys no longer show 503 pages while the backend starts.
-Description: Add a health endpoint to the backend and a Compose health check that uses it, and make the frontend
-depend on the backend being healthy. The runtime image has no `curl`, so the check needs a tool that is available or
-an alternative such as a small Java-based probe (spec §17, Phase 4).
-Acceptance criterion: During `docker compose up -d --force-recreate`, repeated requests to the start page never
-return 503 once the frontend container is running.
+Suggested order: 35, 39, 37, 36, 34, 38.
 
 ## 34. Clean up the rate limiter
 Goal: The rate limiter does not keep addresses longer than needed.
@@ -25,16 +17,17 @@ retained addresses stay bounded (spec §13).
 Acceptance criterion: A unit test with a controllable clock shows that an address that commented once is gone from
 the limiter after its window has passed, without that address commenting again.
 
-## 35. Roll out the backend/frontend split
-Goal: The two-service version runs on the production server.
-Description: The split into backend and frontend is on branch `split-backend-frontend`, not yet on `main`. Open a
-pull request so CI runs, make sure the server can pull the new packages
-`ghcr.io/hoffmannstefan/personal-site-engine-backend` and `…-frontend` (package visibility or `docker login
-ghcr.io`), then merge with `DEPLOY_ENABLED` off and deploy with a manual run while watching the logs. Afterwards
+## 35. Set up the vServer and switch production over
+Goal: Production, development and the dashboards run on the vServer behind its Caddy.
+Description: Everything the repository needs is in place: memory limits, health checks, the extra Compose files, the
+Caddy sites and the deploy of `main` to production and `develop` to development. What remains are the one-time steps
+on the server and in GitHub in `deploy/README.md`: swap, the network `edge`, Caddy, folders and `.env` files,
+GitHub environments and secrets, then the stack, the switch of production and the development site. Afterwards
 delete the old `personal-site-engine` package on GHCR.
-Acceptance criterion: The pull request has a green "Build and test" check; both packages have the tags `latest` and
-the commit hash; on the server only the backend and frontend containers run (the old `homepage` container is gone),
-the site answers, and comments from before the rollout are still shown.
+Acceptance criterion: https://www.stefan-hoffmann.de is served by `site-production-frontend` with the comments from
+before the switch; https://dev.stefan-hoffmann.de asks for the password and shows the development site;
+https://grafana.stefan-hoffmann.de asks for a login and shows both environments; `free -h` on the server shows
+memory left with the development site running.
 
 ## 36. Check comments, formulas and persistence in a browser
 Goal: The parts that automated tests cannot see are confirmed by hand.
@@ -60,3 +53,12 @@ Maven and with Docker Compose, add a post, and delete a comment with the admin t
 stuck or need to ask, and fix the README there.
 Acceptance criterion: The newcomer completes all four steps without help, or the README is changed until a second
 attempt succeeds.
+
+## 39. Measure the Nextcloud's memory on the server
+Goal: The memory budget for the vServer rests on numbers, not estimates.
+Description: The budget in spec §10.5 measures everything except the Nextcloud on the same server, which is estimated
+at 300–500 MB. Measure it on the server (`free -h`, `ps -eo rss,comm --sort=-rss | head`, with and without the
+development site running) and adjust the memory limits or the development site's sleep schedule if the budget does
+not hold.
+Acceptance criterion: Spec §10.5 states the measured value, and with production, development, the stack and the
+Nextcloud running, `free -h` shows memory available and the swap nearly unused.

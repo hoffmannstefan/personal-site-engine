@@ -1,5 +1,6 @@
 # Receives traces, metrics and logs over OTLP and passes each on: traces to Tempo, metrics to Prometheus, logs to Loki.
-# The resource attributes (service.name, deployment.environment.name, service.version) travel along unchanged.
+# Visitor data (IP address, browser) is removed first; the resource attributes (service.name,
+# deployment.environment.name, service.version) travel along unchanged.
 receivers:
   otlp:
     protocols:
@@ -15,6 +16,23 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 25
   batch: {}
+  # The visitor's IP address and browser are personal data (GDPR) and not needed for the dashboards: removed from
+  # every span, log record and metric before anything is stored. HTTP headers are only recorded when configured,
+  # but would be removed too.
+  attributes/privacy:
+    actions:
+      - key: client.address
+        action: delete
+      - key: client.port
+        action: delete
+      - key: network.peer.address
+        action: delete
+      - key: network.peer.port
+        action: delete
+      - key: user_agent.original
+        action: delete
+      - pattern: ^http\.request\.header\.
+        action: delete
 
 exporters:
   otlp_grpc/tempo:
@@ -32,13 +50,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, attributes/privacy, batch]
       exporters: [otlp_grpc/tempo]
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, attributes/privacy, batch]
       exporters: [otlp_http/prometheus]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, attributes/privacy, batch]
       exporters: [otlp_http/loki]

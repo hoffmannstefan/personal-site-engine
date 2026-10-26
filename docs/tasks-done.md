@@ -11,7 +11,7 @@ Each task keeps its number from the backlog and has three extra lines:
 - **Verified:** how the acceptance criterion was checked. For "Done, verification open" the code is written, but part
   of the criterion has not been checked yet; the line names the task in `tasks.md` that covers it.
 
-Status on October 26, 2026: 22 tasks done, 10 done with verification open.
+Status on October 26, 2026: 23 tasks done, 10 done with verification open.
 
 ## 1. Empty project with a passing test
 Goal: A buildable Maven project with a backend and a frontend module, each with one passing test.
@@ -376,3 +376,17 @@ deletes a comment by following only the README.
 Status: Done, verification open
 Done in: 44fc6ec; extended in f8eed9f and 85c5324.
 Verified: Open: a walkthrough by someone new to the project; see task 38.
+
+## 33. Start the frontend after the backend is ready
+Goal: Deploys no longer show 503 pages while the backend starts.
+Description: Add a health endpoint to the backend and a Compose health check that uses it, and make the frontend
+depend on the backend being healthy. The runtime image has no `curl`, so the check needs a tool that is available or
+an alternative such as a small Java-based probe (spec §17, Phase 4).
+Acceptance criterion: During `docker compose up -d --force-recreate`, repeated requests to the start page never
+return 503 once the frontend container is running.
+Status: Done
+Done in: the commit after `0b66b15` (memory limits, health checks, retries while the backend restarts).
+Verified: the health check is a port check (`bash`, no telemetry); the frontend starts after the backend is healthy, and
+while the backend restarts the frontend retries its calls (`RetryTest`, `RetryWhileBackendStartsTest`). Checked on a
+copy of the server setup behind Caddy: during a deploy that recreated backend and frontend, all 26 requests were
+answered with 200 and a comment posted meanwhile arrived.

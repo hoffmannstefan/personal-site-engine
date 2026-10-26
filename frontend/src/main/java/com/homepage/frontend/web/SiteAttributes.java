@@ -36,14 +36,14 @@ class SiteAttributes {
         try {
             return content.site();
         } catch (RestClientException e) {
-            log.warn("Cannot read the site from the backend: {}", e.getMessage());
+            log.warn("Cannot read the site from the backend: {}", BackendFailure.describe(e));
             return Site.UNAVAILABLE;
         }
     }
 
     @ExceptionHandler(RestClientException.class)
     void backendUnavailable(RestClientException e, HttpServletResponse response) throws IOException {
-        log.warn("Cannot read the page content from the backend: {}", e.getMessage());
+        log.warn("Cannot read the page content from the backend: {}", BackendFailure.describe(e));
         metrics.backendUnavailable("page");
         response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value());
     }
