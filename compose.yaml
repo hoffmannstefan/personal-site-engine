@@ -1,9 +1,11 @@
 services:
-  homepage:
-    build: .
-    image: ghcr.io/hoffmannstefan/personal-site-engine:latest
-    ports:
-      - "8080:8080"
+  # Content from info/ and the comments database; reachable only by the frontend, inside the Compose network.
+  backend:
+    build:
+      context: .
+      args:
+        MODULE: backend
+    image: ghcr.io/hoffmannstefan/personal-site-engine-backend:latest
     # Same user as the owner of ./data on the host, so the database files stay writable for both.
     user: "1000:1000"
     environment:
@@ -11,4 +13,20 @@ services:
     volumes:
       - ./data:/app/data        # comments database (H2)
       - ./info:/app/info:ro     # site.yaml, images/, own posts (posts/), publications.bib
+    restart: unless-stopped
+
+  # The website: renders the pages from the backend and passes /api/ and /images/ on to it.
+  frontend:
+    build:
+      context: .
+      args:
+        MODULE: frontend
+    image: ghcr.io/hoffmannstefan/personal-site-engine-frontend:latest
+    ports:
+      - "8080:8080"
+    user: "1000:1000"
+    environment:
+      BACKEND_URL: http://backend:8081
+    depends_on:
+      - backend
     restart: unless-stopped

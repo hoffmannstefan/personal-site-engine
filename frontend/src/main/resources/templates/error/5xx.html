@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html th:replace="~{layout :: layout('Temporarily unavailable', '', ~{::view})}" xmlns:th="http://www.thymeleaf.org">
+<body>
+<section th:fragment="view" class="container centered">
+  <h1 th:text="${status}">503</h1>
+  <h2>Temporarily unavailable</h2>
+  <p>This page cannot be shown right now. Please try again in a moment, or go <a href="/">back to the homepage</a>.</p>
+</section>
+</body>
+</html>

@@ -1,6 +1,7 @@
 # Builds and tests pushes to main and pull requests. Pushes to main also publish the
-# Docker image to the GitHub Container Registry (ghcr.io) and deploy it, together
-# with compose.yaml and the content in info/, to the server.
+# Docker images of the backend and the frontend to the GitHub Container Registry
+# (ghcr.io) and deploy them, together with compose.yaml and the content in info/,
+# to the server.
 name: CI
 
 on:
@@ -49,12 +50,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: surefire-reports
-          path: target/surefire-reports/
+          path: "*/target/surefire-reports/"
 
   image:
-    name: Docker image
+    name: Docker image (${{ matrix.module }})
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [backend, frontend]
     permissions:
       contents: read
       packages: write
@@ -75,7 +79,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}-${{ matrix.module }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
@@ -85,11 +89,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: MODULE=${{ matrix.module }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.module }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.module }}
 
   # Server access comes from repository secrets (Settings → Secrets and variables → Actions):
   #   DEPLOY_HOST          address of the server
@@ -115,7 +120,6 @@ jobs:
       name: production
       url: https://www.stefan-hoffmann.de
     env:
-      IMAGE: ghcr.io/${{ github.repository }}:latest
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
     steps:
       # Fails instead of deploying to a half-configured target, e.g. rsync to / with an empty DEPLOY_PATH.
@@ -166,12 +170,14 @@ jobs:
           rsync -rltvz --delete --chmod=D755,F644 info/ "server:$DEPLOY_PATH/info/"
 
       # Recreated even when only content changed, because posts and settings are read at startup.
-      - name: Pull the new image and restart
+      # --remove-orphans stops containers of services no longer in compose.yaml (the single
+      # "homepage" container from before the split into backend and frontend).
+      - name: Pull the new images and restart
         run: |
           ssh server "set -e
             cd '$DEPLOY_PATH'
-            docker pull '$IMAGE'
-            docker compose up -d --no-build --force-recreate
+            docker compose pull
+            docker compose up -d --no-build --force-recreate --remove-orphans
             docker image prune -f"
 
       - name: Remove the SSH key

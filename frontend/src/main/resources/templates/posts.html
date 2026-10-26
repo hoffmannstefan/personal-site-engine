@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html th:replace="~{layout :: layout(${pageTitle}, ${nav}, ~{::view})}" xmlns:th="http://www.thymeleaf.org">
+<body>
+<section th:fragment="view" class="container list">
+  <header>
+    <h1 class="title"><a class="title-link" href="/posts/">Posts</a></h1>
+  </header>
+  <ul>
+    <li th:each="p : ${posts}">
+      <span class="date" th:text="${#temporals.format(p.date, 'MMMM d, yyyy')}">July 13, 2023</span>
+      <!--/* Title and comment count share the title's part of the row, so the dates and titles stay where they are.
+             The comment count is always there, empty without comments, so its column lines up in every row. */-->
+      <span class="entry">
+        <a class="title" th:href="${p.externalUrl ?: '/posts/' + p.slug + '/'}" th:text="${p.title}"
+           th:target="${p.externalUrl != null and site.externalLinksInNewTab} ? '_blank'"
+           th:rel="${p.externalUrl != null and site.externalLinksInNewTab} ? 'noopener'">Title</a>
+        <span class="comment-count"
+              th:text="${p.comments > 0} ? ${p.comments} + (${p.comments == 1} ? ' comment' : ' comments') : ''">2 comments</span>
+      </span>
+    </li>
+  </ul>
+  <ul class="pagination" th:if="${pages > 1}">
+    <li th:if="${page > 1}"><a th:href="${page == 2} ? '/posts/' : '/posts/page/' + ${page - 1} + '/'">&laquo;</a></li>
+    <li th:each="i : ${#numbers.sequence(1, pages)}">
+      <th:block th:if="${i == page}" th:text="${i}">1</th:block>
+      <a th:if="${i != page}" th:href="${i == 1} ? '/posts/' : '/posts/page/' + ${i} + '/'" th:text="${i}">2</a>
+    </li>
+    <li th:if="${page < pages}"><a th:href="'/posts/page/' + ${page + 1} + '/'">&raquo;</a></li>
+  </ul>
+</section>
+</body>
+</html>

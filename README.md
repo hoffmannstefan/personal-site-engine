@@ -6,6 +6,19 @@ A small, self-hosted engine for a personal academic or developer website, built 
 and server-side **Thymeleaf** templates. All content lives in plain files next to the application: a YAML file for
 the site, Markdown files for the blog and a BibTeX file for the publication list. Visitors can comment on every post.
 
+It runs as two services:
+
+* the **backend** (`backend/`, port 8081) reads the content in `info/`, renders the Markdown, keeps the comments
+  in its database and serves all of it as a [JSON API](#rest-api);
+* the **frontend** (`frontend/`, port 8080) renders the pages with Thymeleaf from that API and passes `/api/` and
+  `/images/` on to the backend, so visitors only ever talk to the frontend.
+
+```
+browser ──► frontend :8080 ──HTTP/JSON──► backend :8081 ──► info/ (site.yaml, posts/, publications.bib, images/)
+            Thymeleaf pages,              content API,      data/ (comments, H2)
+            CSS/JS, MathJax               comments API
+```
+
 ## Features
 
 * **Start page** (`/`): profile card with avatar, headline and profile links next to a short introduction in
@@ -18,22 +31,30 @@ the site, Markdown files for the blog and a BibTeX file for the publication list
   token-protected deletion.
 * **Math**: MathJax 3 served by the application itself (no CDN), loaded only on pages that contain formulas.
 * **Light/dark mode** with a switch in the menu bar.
-* **No rebuild for content changes**: content is read from `info/` at startup, so a restart publishes changes.
+* **No rebuild for content changes**: the backend reads `info/` at startup, so restarting it publishes changes.
+* **REST API**: site, posts, publications and comments as JSON, see [REST API](#rest-api).
 
 Not included: tag/category/author archive pages, an RSS feed, syntax highlighting for code blocks, diagram rendering
 (e.g. Mermaid) and translations.
 
 ## Quick start
 
-With a JDK 21:
+With a JDK 21, in two terminals from the project folder:
 
 ```bash
-./mvnw spring-boot:run          # then open http://localhost:8080
-./mvnw test
-./mvnw package && java -jar target/homepage-0.0.1-SNAPSHOT.jar
+./mvnw -pl backend spring-boot:run     # http://localhost:8081/api/site
+./mvnw -pl frontend spring-boot:run    # then open http://localhost:8080
 ```
 
-Content paths (`./info/…`) are relative to the working directory, so start the application from the project folder.
+```bash
+./mvnw test                            # both modules
+./mvnw -pl backend test                # one module
+./mvnw package && java -jar backend/target/backend-0.0.1-SNAPSHOT.jar   # and frontend/target/frontend-…
+```
+
+The backend's content paths (`./info/…`, `./data/`) are relative to the working directory, so start it from the
+project folder (`spring-boot:run` does that by itself). Without a running backend the frontend answers every page
+with "Temporarily unavailable" (503).
 
 With Docker (the image build compiles the application and runs the tests):
 
@@ -43,7 +64,9 @@ docker compose logs -f
 docker compose down
 ```
 
-Compose mounts `./info` read-only for the content and `./data` for the comment database.
+Compose starts both services. Only the frontend gets a port on the host; the backend is reachable only by the
+frontend, inside the Compose network. Compose mounts `./info` read-only for the content and `./data` for the comment
+database into the backend.
 
 `./mvnw` needs a full JDK (with `javac`); with only a JRE it stops with "release version 21 not supported". To run
 the tests without a local JDK:
@@ -67,9 +90,10 @@ info/
 └── publications.bib   Publications page
 ```
 
-`info/` is neither bundled into the jar nor copied into the Docker image (`.dockerignore`): Docker Compose mounts it,
-so on the server it has to sit next to `compose.yaml`. Changes need no rebuild, only `docker compose restart`
-(images not even that). The repository ships with sample content to start from.
+Only the backend reads `info/`. It is neither bundled into the jar nor copied into the Docker image
+(`.dockerignore`): Docker Compose mounts it, so on the server it has to sit next to `compose.yaml`. Changes need no
+rebuild, only `docker compose restart backend` (images not even that). The repository ships with sample content to
+start from.
 
 ## Site configuration
 
@@ -141,7 +165,7 @@ link: https://example.org    # optional: makes a list entry that points to anoth
 Text with *Markdown* and a formula $e^{i\pi} + 1 = 0$.
 ```
 
-* **Where:** `info/posts/` (`site.posts-dir`, or env `POSTS_DIR`). Restart to publish (`docker compose restart`).
+* **Where:** `info/posts/` (`site.posts-dir`, or env `POSTS_DIR`). Restart to publish (`docker compose restart backend`).
   The file name is the address (`my-post.md` becomes `/posts/my-post/`; lower case letters, digits and hyphens).
   Files with a missing title or date are skipped with a warning in the log. Without the folder the blog is empty.
 * **Markdown:** CommonMark plus tables, ~~strikethrough~~, autolinks, footnotes and heading anchors. Headings should
@@ -226,20 +250,32 @@ A line "Group by: year · type · none" above the list lets visitors switch (`/p
 value falls back to the configured one. Empty groups are left out, and each heading has an anchor (`#2024`,
 `#journal-articles`).
 
-The file is read at startup, so restart after a change (`docker compose restart`). Without the file the page shows
+The file is read at startup, so restart after a change (`docker compose restart backend`). Without the file the page shows
 "Coming soon.".
 
 **Using a DBLP export.** Save the `.bib` link of your DBLP author page from the browser (DBLP's bot protection
 blocks `curl`). The export has no `eprint` or `related` fields, so add them by hand where wanted. Once you have
 edited the file, do not replace it with a fresh export, or the edits are lost: copy new entries over instead.
 
-## Comments
+## REST API
+
+The backend serves everything as JSON. The frontend passes `/api/**` on unchanged, so the same paths work on the
+public site (`https://…/api/posts`) and on the backend itself (`http://localhost:8081/api/posts`).
 
 | Method | Path | |
 |---|---|---|
+| `GET` | `/api/site` | Name, texts, start page (text as HTML) and settings from `info/site.yaml` |
+| `GET` | `/api/posts?page=1` | One page of the blog list, newest first, with the number of comments: `{"page","pages","posts"}`; 404 past the last page |
+| `GET` | `/api/posts/{slug}` | A post with its body rendered to HTML; 404 for unknown posts and external link entries |
+| `GET` | `/api/publications?group=year` | The publication list in groups (`year`, `type` or `none`; without `group` as configured) |
 | `GET` | `/api/posts/{slug}/comments` | All comments of a post, oldest first |
 | `POST` | `/api/posts/{slug}/comments` | `{"author","body","parentId?"}` → 201 |
 | `DELETE` | `/api/comments/{id}` | Header `X-Admin-Token`; also removes the replies |
+| `GET` | `/images/…` | The files in `info/images/` |
+
+The content changes only with a restart of the backend; the frontend caches nothing, so it shows the change at once.
+
+## Comments
 
 * Visitors give a name and a comment (no account, no e-mail). Replies are one level deep.
 * Comments are plain text: the page renders them with `textContent`, so markup is never interpreted.
@@ -248,29 +284,34 @@ edited the file, do not replace it with a fresh export, or the edits are lost: c
 * Deleting is disabled until you set `COMMENTS_ADMIN_TOKEN`, e.g. in a `.env` file next to `compose.yaml` (ignored by
   Git). Use a long random value (`openssl rand -hex 32`), then:
   `curl -X DELETE -H 'X-Admin-Token: …' http://localhost:8080/api/comments/12`
-* Behind a reverse proxy, set `server.forward-headers-strategy=native` (only if the proxy overwrites
-  `X-Forwarded-For`), otherwise every visitor shares the proxy's rate limit.
+* The frontend passes on the visitor's address as `X-Forwarded-For`, and the backend trusts it from private and
+  loopback addresses only (`server.forward-headers-strategy=native`), so the rate limit counts per visitor.
+* If a reverse proxy sits in front of the frontend, set `SERVER_FORWARD_HEADERS_STRATEGY=native` for the frontend too
+  (only if the proxy overwrites `X-Forwarded-For`), otherwise every visitor shares the proxy's rate limit.
 
-Comments go to a file-based H2 database in `./data/` by default; for PostgreSQL add its JDBC driver to the `pom.xml`
-and set `DB_URL` etc.
+Comments go to the backend's file-based H2 database in `./data/` by default; for PostgreSQL add its JDBC driver to
+`backend/pom.xml` and set `DB_URL` etc.
 
 ## Math formulas
 
 Formulas are typeset by [MathJax](https://www.mathjax.org/) 3 (SVG output, so they follow the light/dark theme),
-which comes from the `org.webjars.npm:mathjax` dependency and is served by the app itself: no CDN, works offline.
-A post that contains a formula loads MathJax automatically. The server writes every formula as `\( \)` / `\[ \]`,
-so `$` is not a delimiter in the browser (see `static/js/mathjax-config.js`).
+which comes from the frontend's `org.webjars.npm:mathjax` dependency and is served by the frontend itself: no CDN,
+works offline. The backend marks posts that contain a formula (`"math": true`), and their pages load MathJax. The
+backend writes every formula as `\( \)` / `\[ \]`, so `$` is not a delimiter in the browser (see
+`frontend/src/main/resources/static/js/mathjax-config.js`).
 
 ## Continuous integration and deployment
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request:
 
-1. **Build and test**: `./mvnw verify` with Java 21.
-2. **Docker image**: built after green tests; pushes to `main` publish it as
-   `ghcr.io/hoffmannstefan/personal-site-engine` (tags `latest` and the commit hash).
+1. **Build and test**: `./mvnw verify` with Java 21, both modules.
+2. **Docker images**: built after green tests, one per module from the same `Dockerfile` (`--build-arg
+   MODULE=backend|frontend`); pushes to `main` publish them as `ghcr.io/hoffmannstefan/personal-site-engine-backend`
+   and `…-frontend` (tags `latest` and the commit hash).
 3. **Deploy** (from `main` only, see below): copies `compose.yaml` and `info/` to the server via rsync (`info/` is
-   mirrored, so files deleted in the repository disappear on the server too), pulls the new image and recreates the
-   container. `data/` and `.env` on the server are not touched.
+   mirrored, so files deleted in the repository disappear on the server too), pulls the new images and recreates the
+   containers. Containers of services no longer in `compose.yaml` are removed (`--remove-orphans`), such as the single
+   `homepage` container from before the split. `data/` and `.env` on the server are not touched.
 
 Deployment is off by default. Pushes to `main` deploy only while the repository variable `DEPLOY_ENABLED` is `true`
 (Settings → Secrets and variables → Actions → Variables, or `gh variable set DEPLOY_ENABLED --body true`). A manual
@@ -284,24 +325,30 @@ The server needs Docker with Compose and rsync; if the package on ghcr.io is pri
 
 ## Technical configuration
 
-Two places, kept apart on purpose:
+Three places, kept apart on purpose:
 
 * `info/site.yaml`: what the site shows, see [Site configuration](#site-configuration).
-* `src/main/resources/application.properties`: where the content lives (`site.config-file`, `site.posts-dir`,
-  `site.publications-file`, `site.images-dir`), the comment settings and the database.
+* `backend/src/main/resources/application.properties`: where the content lives (`site.config-file`,
+  `site.posts-dir`, `site.publications-file`, `site.images-dir`), the comment settings and the database.
+* `frontend/src/main/resources/application.properties`: where the backend runs (`frontend.backend-url`) and how long
+  the frontend waits for it.
 
 Environment variables:
 
-| Variable | Purpose |
-|---|---|
-| `SITE_CONFIG`, `POSTS_DIR`, `PUBLICATIONS_FILE`, `IMAGES_DIR` | Content locations |
-| `COMMENTS_ADMIN_TOKEN` | Enables deleting comments |
-| `DB_URL`, `DB_USER`, `DB_PASSWORD` | Comment database |
-| `THYMELEAF_CACHE=false` | Live template editing |
+| Variable | Service | Purpose |
+|---|---|---|
+| `SITE_CONFIG`, `POSTS_DIR`, `PUBLICATIONS_FILE`, `IMAGES_DIR` | backend | Content locations |
+| `COMMENTS_ADMIN_TOKEN` | backend | Enables deleting comments |
+| `DB_URL`, `DB_USER`, `DB_PASSWORD` | backend | Comment database |
+| `BACKEND_URL` | frontend | Address of the backend (default `http://localhost:8081`; `http://backend:8081` in Compose) |
+| `THYMELEAF_CACHE=false` | frontend | Live template editing |
+| `PORT` | both | Port to listen on (backend 8081, frontend 8080) |
 
 ## Project layout
 
-Java packages under `src/main/java/com/homepage/`:
+A Maven project with two modules; the parent `pom.xml` builds both.
+
+**Backend**, Java packages under `backend/src/main/java/com/homepage/backend/`:
 
 * `post/` loads the posts from `info/posts/` and renders Markdown; `MathProtector` shields formulas from the
   Markdown parser.
@@ -310,21 +357,32 @@ Java packages under `src/main/java/com/homepage/`:
 * `publication/` reads the BibTeX file: `BibTeX` parses it and turns LaTeX into text, `PublicationService` makes the
   display entries, links the arXiv preprints and groups the list.
 * `comment/` entity, repository, service, REST controller, rate limiter.
-* `web/` page controller, error handling; `ImageConfig` serves `info/images/` under `/images/`.
+* `web/` the content API (`ContentController`), error handling; `ImageConfig` serves `info/images/` under `/images/`.
 
-Resources under `src/main/resources/`:
+The backend's tests use their own content in `backend/src/test/resources/` (`info/site.yaml`, `info/posts/`,
+`publications-test.bib`), so the content in `info/` can change freely.
+
+**Frontend**, Java packages under `frontend/src/main/java/com/homepage/frontend/`:
+
+* `content/` reads the backend's API: `ContentClient` and the records it returns (`Site`, `PostPage`, `Post`,
+  `Publications`).
+* `web/` page controller; `SiteAttributes` provides `site` to every template and turns a backend that is down into
+  a 503 page; `BackendProxy` passes `/api/**` and `/images/**` on to the backend.
+
+Resources under `frontend/src/main/resources/`:
 
 * `templates/`: `layout.html` is the skeleton of every page (head, menu, footer), each page template only holds its
-  own content. The `Site` from `info/site.yaml` is available in every template as `site`.
+  own content. The site from `info/site.yaml` is available in every template as `site`. `error/` has the 404 and
+  5xx pages.
 * `static/js/comments.js` is the comment UI; `static/css/site.css` holds the site's own styles (colours for
-  light/dark, comments, publications); `static/images/` holds the favicons.
+  light/dark, comments, publications); the favicons sit at the top of `static/`.
 
-The tests use their own content in `src/test/resources/` (`info/site.yaml`, `info/posts/`,
-`publications-test.bib`), so the content in `info/` can change freely.
+The frontend's tests replace the backend with a stub (`PagesTest`) or with a small fake HTTP server
+(`BackendTest`), so they run without a backend.
 
 ## Credits
 
 The base stylesheet, the light/dark switch script and the Font Awesome subset come from the
 [Hugo Coder](https://github.com/luizdepra/hugo-coder/) theme (MIT, © Luiz de Prá) and are included unchanged
-(`static/css/coder*.css`, `static/js/coder.min.js`, `static/fonts/`). The footer credits them in
-`templates/layout.html`.
+(`frontend/src/main/resources/static/css/coder*.css`, `static/js/coder.min.js`, `static/fonts/`). The footer
+credits them in `templates/layout.html`.
