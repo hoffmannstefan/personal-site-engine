@@ -19,6 +19,18 @@ browser ──► frontend :8080 ──HTTP/JSON──► backend :8081 ──�
             CSS/JS, MathJax               comments API
 ```
 
+## Live demo
+
+The engine runs the author's own site; all three parts are open to look at:
+
+| | What it shows |
+|---|---|
+| [www.stefan-hoffmann.de](https://www.stefan-hoffmann.de) | **Production**, built from `main`: the start page, the blog with comments and the publication list. |
+| [dev.stefan-hoffmann.de](https://dev.stefan-hoffmann.de) | **Development**, built from `develop`: the next version before it goes to production. It may be ahead of production, or asleep. |
+| [grafana.stefan-hoffmann.de](https://grafana.stefan-hoffmann.de) | **Observability**: the dashboard *Personal Site* with page views, comments, response times, errors and log warnings of both environments, viewable without a login (see [the dashboard](observability/README.md#the-dashboard)). |
+
+How they are deployed is described in [Continuous integration and deployment](#continuous-integration-and-deployment).
+
 ## Features
 
 * **Start page** (`/`): profile card with avatar, headline and profile links next to a short introduction in
