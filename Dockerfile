@@ -14,7 +14,11 @@ COPY .mvn .mvn
 COPY backend/pom.xml backend/
 COPY frontend/pom.xml frontend/
 COPY ${MODULE}/src ${MODULE}/src
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -pl ${MODULE} package
+# BuildKit traces the build and puts OTEL_* variables into every RUN step, pointing to its own socket
+# (unix:///dev/otel-grpc.sock). The telemetry tests would pick them up and fail, so they run without them.
+RUN --mount=type=cache,target=/root/.m2 \
+    for name in $(env | sed -n 's/^\(OTEL_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$name"; done; \
+    ./mvnw -B -pl ${MODULE} package
 
 # Run stage: only the Java runtime and the application jar.
 FROM eclipse-temurin:21-jre
